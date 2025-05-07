@@ -1,11 +1,22 @@
 # Delimit
 
-**TODO: Add description**
+[![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
+[![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/yourusername/delimit/blob/main/LICENSE)
+
+Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing, validation, and transformation capabilities.
+
+## Features
+
+- **Schema-based approach**: Define the structure of your delimited files using Ecto-like schemas
+- **Strong typing**: Convert between string values and proper Elixir types (integers, floats, booleans, dates, etc.)
+- **Streaming support**: Process large files efficiently with Elixir streams
+- **Customizable**: Configure delimiters, headers, type conversion, and more
+- **Embedded schemas**: Nest schemas for complex data structures
+- **Custom transformations**: Add your own read/write functions for special data formats
 
 ## Installation
 
-If [available in Hex](https://hex.pm/docs/publish), the package can be installed
-by adding `delimit` to your list of dependencies in `mix.exs`:
+Add `delimit` to your list of dependencies in `mix.exs`:
 
 ```elixir
 def deps do
@@ -15,7 +26,200 @@ def deps do
 end
 ```
 
-Documentation can be generated with [ExDoc](https://github.com/elixir-lang/ex_doc)
-and published on [HexDocs](https://hexdocs.pm). Once published, the docs can
-be found at <https://hexdocs.pm/delimit>.
+Then fetch your dependencies:
 
+```bash
+mix deps.get
+```
+
+## Quick Start
+
+### Define a schema
+
+Define a schema that represents the structure of your delimited file:
+
+```elixir
+defmodule MyApp.Person do
+  use Delimit
+
+  layout do
+    field :first_name, :string
+    field :last_name, :string
+    field :age, :integer
+    field :salary, :float
+    field :birthday, :date, format: "YYYY-MM-DD"
+    field :active, :boolean
+    field :notes, :string, nil_on_empty: true
+  end
+end
+```
+
+### Reading data
+
+Read data from a file:
+
+```elixir
+# Read all records at once
+people = MyApp.Person.read("people.csv")
+
+# Stream records for better memory efficiency
+people_stream =
+  "large_file.csv"
+  |> MyApp.Person.stream()
+  |> Stream.filter(fn person -> person.age > 30 end)
+  |> Stream.map(fn person -> Map.update!(person, :salary, & &1 * 1.1) end)
+  |> Enum.to_list()
+
+# Read from a string
+csv_data = "first_name,last_name,age\nJohn,Doe,42"
+people = MyApp.Person.read_string(csv_data)
+```
+
+### Writing data
+
+Write data to a file:
+
+```elixir
+people = [
+  %{first_name: "John", last_name: "Doe", age: 42,
+    salary: 50000.0, birthday: ~D[1980-01-15], active: true, notes: "Senior developer"},
+  %{first_name: "Jane", last_name: "Smith", age: 35,
+    salary: 60000.0, birthday: ~D[1987-05-22], active: true, notes: nil}
+]
+
+# Write all records at once
+:ok = MyApp.Person.write("people.csv", people)
+
+# Write to a string
+csv_string = MyApp.Person.write_string(people)
+
+# Stream data to a file (memory efficient)
+stream = Stream.map(1..1000, fn i ->
+  %{
+    first_name: "User#{i}",
+    last_name: "Test",
+    age: 20 + rem(i, 50),
+    salary: 30_000.0 + (i * 100),
+    birthday: Date.add(~D[2000-01-01], i),
+    active: rem(i, 2) == 0,
+    notes: "Generated user #{i}"
+  }
+end)
+
+:ok = MyApp.Person.stream_to_file("users.csv", stream)
+```
+
+## Field Types
+
+Delimit supports the following field types:
+
+| Type        | Description            | Example                        |
+| ----------- | ---------------------- | ------------------------------ |
+| `:string`   | Basic string values    | `field :name, :string`         |
+| `:integer`  | Integer numbers        | `field :age, :integer`         |
+| `:float`    | Floating point numbers | `field :salary, :float`        |
+| `:boolean`  | Boolean values         | `field :active, :boolean`      |
+| `:date`     | Date values            | `field :birthday, :date`       |
+| `:datetime` | DateTime values        | `field :created_at, :datetime` |
+
+## Field Options
+
+Each field can have additional options:
+
+```elixir
+# Default value when field is missing
+field :age, :integer, default: 0
+
+# Custom header name in CSV file
+field :email, :string, label: "contact_email"
+
+# Format for date/datetime fields
+field :birthday, :date, format: "MM/DD/YYYY"
+
+# Convert empty strings to nil
+field :notes, :string, nil_on_empty: true
+
+# Custom values for boolean fields
+field :status, :boolean, true_values: ["Y", "Yes"], false_values: ["N", "No"]
+
+# Custom conversion functions
+field :tags, :string, read_fn: &String.split(&1, "|"), write_fn: &Enum.join(&1, "|")
+```
+
+## Advanced Usage
+
+### Embedded Schemas
+
+You can nest schemas using the `embeds_one` macro:
+
+```elixir
+defmodule MyApp.Address do
+  use Delimit
+
+  layout do
+    field :street, :string
+    field :city, :string
+    field :state, :string
+    field :postal_code, :string
+  end
+end
+
+defmodule MyApp.Customer do
+  use Delimit
+
+  layout do
+    field :name, :string
+    field :email, :string
+    embeds_one :address, MyApp.Address
+    embeds_one :billing_address, MyApp.Address, prefix: "billing_"
+  end
+end
+
+# This will handle headers like:
+# name,email,street,city,state,postal_code,billing_street,billing_city,billing_state,billing_postal_code
+```
+
+### Custom Delimiters
+
+You can use different delimiters for your files:
+
+```elixir
+# Read tab-separated values
+people = MyApp.Person.read("people.tsv", delimiter: "\t")
+
+# Write pipe-separated values
+:ok = MyApp.Person.write("people.psv", people, delimiter: "|")
+```
+
+### Handling Headers
+
+You can control how headers are handled:
+
+```elixir
+# Read data without headers
+people = MyApp.Person.read("people.csv", headers: false)
+
+# Write data without headers
+:ok = MyApp.Person.write("people.csv", people, headers: false)
+```
+
+### Skipping Lines
+
+Skip comment lines or other metadata at the beginning of a file:
+
+```elixir
+# Skip a fixed number of lines
+people = MyApp.Person.read("people.csv", skip_lines: 3)
+
+# Skip lines dynamically based on content
+people = MyApp.Person.read("people.csv",
+  skip_while: fn line -> String.starts_with?(line, "#") end)
+```
+
+## License
+
+This project is licensed under the LGPL-3 License - see the LICENSE file for details.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
