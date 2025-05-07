@@ -28,9 +28,11 @@ defmodule Delimit.MixProject do
       {:mix_test_watch, "~> 1.1", only: [:dev, :test], runtime: false},
       {:sobelow,
        git: "https://github.com/nccgroup/sobelow", only: [:dev, :test], runtime: false},
-      {:styler, "~> 1.0", only: [:dev, :test], runtime: false}
+      {:styler, "~> 1.0", only: [:dev, :test], runtime: false},
 
       # Production
+      {:nimble_csv, "~> 1.2"},
+      {:timex, "~> 3.7"}
     ]
   end
 end

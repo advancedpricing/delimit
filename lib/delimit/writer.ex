@@ -1,0 +1,176 @@
+defmodule Delimit.Writer do
+  @moduledoc """
+  Functions for writing delimited data to files or strings.
+
+  This module provides functionality to write delimited data to files
+  or strings based on schema definitions, supporting both single-write
+  and streaming operations.
+  """
+
+  alias Delimit.Schema
+  alias NimbleCSV.RFC4180, as: CSV
+
+  @typedoc """
+  Options for writing delimited data.
+
+  * `:headers` - Whether to include headers in the output (default: true)
+  * `:delimiter` - The field delimiter character (default: comma)
+  * `:line_ending` - Line ending to use (default: system-dependent)
+  """
+  @type write_options :: [
+          headers: boolean(),
+          delimiter: String.t(),
+          line_ending: String.t()
+        ]
+
+  @doc """
+  Writes delimited data to a file.
+
+  ## Parameters
+
+    * `schema` - The schema definition
+    * `path` - Path to the output file
+    * `data` - List of structs or maps to write
+    * `opts` - Write options that override schema options
+
+  ## Returns
+
+    * `:ok` on success
+
+  ## Example
+
+      iex> people = [%{first_name: "John", last_name: "Doe", age: 42}]
+      iex> MyApp.Person.write("people.csv", people)
+      :ok
+  """
+  @spec write_file(Schema.t(), Path.t(), [struct() | map()], write_options()) :: :ok
+  def write_file(%Schema{} = schema, path, data, opts \\ []) do
+    # Merge options from schema and function call
+    options = Keyword.merge(schema.options, opts)
+
+    # Convert data to string
+    csv_string = write_string(schema, data, options)
+
+    # Write to file
+    File.write!(path, csv_string)
+  end
+
+  @doc """
+  Writes delimited data to a string.
+
+  ## Parameters
+
+    * `schema` - The schema definition
+    * `data` - List of structs or maps to write
+    * `opts` - Write options that override schema options
+
+  ## Returns
+
+    * String containing the delimited data
+
+  ## Example
+
+      iex> people = [%{first_name: "John", last_name: "Doe", age: 42}]
+      iex> MyApp.Person.write_string(people)
+      "first_name,last_name,age\\nJohn,Doe,42\\n"
+  """
+  @spec write_string(Schema.t(), [struct() | map()], write_options()) :: binary()
+  def write_string(%Schema{} = schema, data, opts \\ []) when is_list(data) do
+    # Merge options from schema and function call
+    options = Keyword.merge(schema.options, opts)
+
+    # Configure CSV writer
+    _writer_opts = configure_writer(options)
+
+    # Prepare headers if needed
+    rows =
+      if Keyword.get(options, :headers, true) do
+        headers = Schema.headers(schema)
+        [headers | prepare_data_rows(schema, data, headers)]
+      else
+        prepare_data_rows(schema, data, nil)
+      end
+
+    # Generate the delimited string
+    rows
+    |> CSV.dump_to_iodata()
+    |> IO.iodata_to_binary()
+  end
+
+  @doc """
+  Streams delimited data to a file.
+
+  ## Parameters
+
+    * `schema` - The schema definition
+    * `path` - Path to the output file
+    * `data_stream` - Stream of structs or maps to write
+    * `opts` - Write options that override schema options
+
+  ## Returns
+
+    * `:ok` on success
+
+  ## Example
+
+      iex> stream = Stream.map(1..1000, fn i -> %{first_name: "User", last_name: "User", age: i} end)
+      iex> MyApp.Person.stream_to_file("people.csv", stream)
+      :ok
+  """
+  @spec stream_to_file(Schema.t(), Path.t(), Enumerable.t(), write_options()) :: :ok
+  def stream_to_file(%Schema{} = schema, path, data_stream, opts \\ []) do
+    # Merge options from schema and function call
+    options = Keyword.merge(schema.options, opts)
+
+    # Configure CSV writer
+    _writer_opts = configure_writer(options)
+
+    # Open file for writing
+    {:ok, file} = File.open(path, [:write, :utf8])
+
+    # Write headers if needed
+    if Keyword.get(options, :headers, true) do
+      headers = Schema.headers(schema)
+      header_row = CSV.dump_to_iodata([headers])
+      IO.binwrite(file, header_row)
+    end
+
+    # Stream each item, convert to row, and write to file
+    _result =
+      data_stream
+      |> Stream.map(fn item ->
+        row = Schema.to_row(schema, item)
+        CSV.dump_to_iodata([row])
+      end)
+      |> Stream.each(fn row_data ->
+        IO.binwrite(file, row_data)
+      end)
+      |> Stream.run()
+
+    # Close the file
+    File.close(file)
+
+    :ok
+  end
+
+  # Configure the CSV writer based on options
+  defp configure_writer(options) do
+    delimiter = Keyword.get(options, :delimiter, ",")
+    line_ending = Keyword.get(options, :line_ending, "\n")
+
+    # Set NimbleCSV options globally since it doesn't accept per-call options
+    Application.put_env(:nimble_csv, NimbleCSV.RFC4180,
+      separator: delimiter,
+      line_separator: line_ending
+    )
+    
+    []
+  end
+
+  # Prepare data rows for writing
+  defp prepare_data_rows(schema, data, headers) do
+    Enum.map(data, fn item ->
+      Schema.to_row(schema, item, headers)
+    end)
+  end
+end
