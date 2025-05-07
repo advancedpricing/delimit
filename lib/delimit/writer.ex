@@ -8,7 +8,6 @@ defmodule Delimit.Writer do
   """
 
   alias Delimit.Schema
-  alias NimbleCSV.RFC4180, as: CSV
 
   @typedoc """
   Options for writing delimited data.
@@ -48,8 +47,9 @@ defmodule Delimit.Writer do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Convert data to string
-    csv_string = write_string(schema, data, options)
+    # Convert data to string using the appropriate parser
+    parser = get_parser(options)
+    csv_string = write_string(schema, data, options, parser)
 
     # Write to file
     File.write!(path, csv_string)
@@ -79,9 +79,16 @@ defmodule Delimit.Writer do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Configure CSV writer
-    _writer_opts = configure_writer(options)
-
+    # Get the parser with our options
+    parser = get_parser(options)
+    
+    # Call the internal implementation with the parser
+    write_string(schema, data, options, parser)
+  end
+  
+  # Internal implementation with parser provided
+  @spec write_string(Schema.t(), [struct() | map()], write_options(), module()) :: binary()
+  defp write_string(%Schema{} = schema, data, options, parser) do
     # Prepare headers if needed
     rows =
       if Keyword.get(options, :headers, true) do
@@ -94,7 +101,7 @@ defmodule Delimit.Writer do
 
     # Generate the delimited string
     rows
-    |> CSV.dump_to_iodata()
+    |> parser.dump_to_iodata()
     |> IO.iodata_to_binary()
   end
 
@@ -123,8 +130,8 @@ defmodule Delimit.Writer do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Configure CSV writer
-    _writer_opts = configure_writer(options)
+    # Get the parser with our options
+    parser = get_parser(options)
 
     # Open file for writing
     {:ok, file} = File.open(path, [:write, :utf8])
@@ -132,7 +139,7 @@ defmodule Delimit.Writer do
     # Write headers if needed
     if Keyword.get(options, :headers, true) do
       headers = collect_headers(schema)
-      header_row = CSV.dump_to_iodata([headers])
+      header_row = parser.dump_to_iodata([headers])
       IO.binwrite(file, header_row)
     end
 
@@ -141,7 +148,7 @@ defmodule Delimit.Writer do
       data_stream
       |> Stream.map(fn item ->
         row = Schema.to_row(schema, item)
-        CSV.dump_to_iodata([row])
+        parser.dump_to_iodata([row])
       end)
       |> Stream.each(fn row_data ->
         IO.binwrite(file, row_data)
@@ -154,18 +161,26 @@ defmodule Delimit.Writer do
     :ok
   end
 
-  # Configure the CSV writer based on options
-  defp configure_writer(options) do
+  # Get a CSV parser with the given options
+  defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
     line_ending = Keyword.get(options, :line_ending, "\n")
 
-    # Set NimbleCSV options globally since it doesn't accept per-call options
-    Application.put_env(:nimble_csv, NimbleCSV.RFC4180,
-      separator: delimiter,
-      line_separator: line_ending
-    )
+    # Create a unique module name to avoid redefinition warnings
+    unique_module_name = String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
     
-    []
+    # Create a dynamic parser with our options
+    result = NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
+    
+    # Extract the module name from the result
+    case result do
+      # When it returns the module directly
+      module when is_atom(module) -> module
+      # When it returns a tuple with module info
+      {:module, module, _binary, _term} -> module
+      # Fall back to the name if something else is returned
+      _ -> unique_module_name
+    end
   end
 
   # Prepare data rows for writing

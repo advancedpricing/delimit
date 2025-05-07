@@ -8,7 +8,6 @@ defmodule Delimit.Reader do
   """
 
   alias Delimit.Schema
-  alias NimbleCSV.RFC4180, as: CSV
 
   @typedoc """
   Options for reading delimited data.
@@ -52,12 +51,12 @@ defmodule Delimit.Reader do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Configure NimbleCSV parser
-    configure_parser(options)
+    # Get the parser 
+    parser = get_parser(options)
 
     # Read the file
     contents = File.read!(path)
-    read_string(schema, contents, options)
+    read_string(schema, contents, options, parser)
   end
 
   @doc """
@@ -84,11 +83,18 @@ defmodule Delimit.Reader do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Configure NimbleCSV parser
-    configure_parser(options)
-
+    # Get parser
+    parser = get_parser(options)
+    
+    # Call internal implementation
+    read_string(schema, string, options, parser)
+  end
+  
+  # Internal implementation with parser provided
+  @spec read_string(Schema.t(), binary(), read_options(), module()) :: [struct() | map()]
+  defp read_string(%Schema{} = schema, string, options, parser) when is_binary(string) do
     # Parse the string
-    rows = parse_with_options(string, options)
+    rows = parse_with_options(string, options, parser)
 
     # Extract headers if needed
     {headers, data_rows} = extract_headers(rows, options)
@@ -125,14 +131,14 @@ defmodule Delimit.Reader do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
-    # Configure NimbleCSV parser
-    configure_parser(options)
+    # Get parser
+    parser = get_parser(options)
 
     # Create the base stream
     stream = 
       path
       |> File.stream!()
-      |> stream_with_options(options)
+      |> stream_with_options(options, parser)
     
     # If headers are enabled, we need to handle them
     if Keyword.get(options, :headers, true) do
@@ -150,21 +156,32 @@ defmodule Delimit.Reader do
     end
   end
 
-  # Configure the CSV parser based on options
-  defp configure_parser(options) do
+  # Get a parser with the given options
+  defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
     
-    # Set the separator globally for NimbleCSV
-    Application.put_env(:nimble_csv, NimbleCSV.RFC4180,
-      separator: delimiter
-    )
+    # Create a unique module name to avoid redefinition warnings
+    unique_module_name = String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
+    
+    # Create a dynamic parser with our options
+    result = NimbleCSV.define(unique_module_name, separator: delimiter)
+    
+    # Extract the module name from the result
+    case result do
+      # When it returns the module directly
+      module when is_atom(module) -> module
+      # When it returns a tuple with module info
+      {:module, module, _binary, _term} -> module
+      # Fall back to the name if something else is returned
+      _ -> unique_module_name
+    end
   end
 
   # Parse a string with the given options
-  defp parse_with_options(string, options) do
+  defp parse_with_options(string, options, parser) do
     # Apply CSV parsing - normalize line endings first
     string = String.replace(string, "\r\n", "\n")
-    rows = CSV.parse_string(string)
+    rows = parser.parse_string(string)
     
     # Apply skipping options
     skip_lines = Keyword.get(options, :skip_lines, 0)
@@ -188,9 +205,9 @@ defmodule Delimit.Reader do
   end
 
   # Stream a file with the given options
-  defp stream_with_options(stream, options) do
+  defp stream_with_options(stream, options, parser) do
     # Apply CSV parsing
-    stream = CSV.parse_stream(stream)
+    stream = parser.parse_stream(stream)
     
     # Apply skipping options
     skip_lines = Keyword.get(options, :skip_lines, 0)
