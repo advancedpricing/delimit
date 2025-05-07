@@ -1,7 +1,7 @@
 # Delimit
 
 [![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
-[![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/yourusername/delimit/blob/main/LICENSE)
+[![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/jcowgar/delimit/blob/main/LICENSE)
 
 Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing, validation, and transformation capabilities.
 
