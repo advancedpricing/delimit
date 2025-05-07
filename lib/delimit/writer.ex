@@ -85,7 +85,8 @@ defmodule Delimit.Writer do
     # Prepare headers if needed
     rows =
       if Keyword.get(options, :headers, true) do
-        headers = Schema.headers(schema)
+        # Get all headers including those from embedded schemas
+        headers = collect_headers(schema)
         [headers | prepare_data_rows(schema, data, headers)]
       else
         prepare_data_rows(schema, data, nil)
@@ -130,7 +131,7 @@ defmodule Delimit.Writer do
 
     # Write headers if needed
     if Keyword.get(options, :headers, true) do
-      headers = Schema.headers(schema)
+      headers = collect_headers(schema)
       header_row = CSV.dump_to_iodata([headers])
       IO.binwrite(file, header_row)
     end
@@ -172,5 +173,28 @@ defmodule Delimit.Writer do
     Enum.map(data, fn item ->
       Schema.to_row(schema, item, headers)
     end)
+  end
+  
+  # Collect all headers from schema, including those from embedded schemas
+  @doc false # exposed for testing
+  def collect_headers(schema) do
+    # Get regular field headers
+    regular_headers = Schema.headers(schema)
+    
+    # Get headers from embedded schemas
+    embed_headers = 
+      schema
+      |> Schema.get_embeds()
+      |> Enum.flat_map(fn field ->
+        embed_module = schema.embeds[field.name]
+        embed_schema = embed_module.__delimit_schema__()
+        prefix = Schema.get_embed_prefix(field)
+        
+        # Get headers with the prefix applied
+        Schema.headers(embed_schema, prefix)
+      end)
+    
+    # Combine regular and embedded headers
+    regular_headers ++ embed_headers
   end
 end

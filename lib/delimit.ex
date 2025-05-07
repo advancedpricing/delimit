@@ -100,11 +100,13 @@ defmodule Delimit do
     * `:false_values` - List of values to interpret as false for boolean fields
     * `:read_fn` - Custom function to parse the raw field value
     * `:write_fn` - Custom function to convert the field value to string
+    * `:label` - Custom header label for this field (instead of the field name)
 
   ## Example
 
       field :birthday, :date, format: "YYYY-MM-DD"
       field :active, :boolean, true_values: ["Y", "YES"], false_values: ["N", "NO"]
+      field :email, :string, label: "contact_email"
   """
   defmacro field(name, type, opts) do
     quote do
@@ -123,6 +125,7 @@ defmodule Delimit do
   ## Example
 
       embeds_one :address, MyApp.Address
+      embeds_one :billing_address, MyApp.Address, prefix: "billing"
   """
   defmacro embeds_one(name, module) do
     quote do
@@ -138,6 +141,10 @@ defmodule Delimit do
     * `name` - The name for the embedded schema
     * `module` - The module defining the embedded schema
     * `opts` - Options for the embedded schema
+
+  ## Options
+
+    * `:prefix` - Prefix to add to field headers (default: field name + "_")
 
   ## Example
 
@@ -199,7 +206,7 @@ defmodule Delimit do
       """
       @spec read_string(binary(), Keyword.t()) :: [map()]
       def read_string(string, opts \\ []) do
-        Delimit.Reader.read_string(string, __delimit_schema__(), opts)
+        Delimit.Reader.read_string(__delimit_schema__(), string, opts)
       end
       
       @doc """

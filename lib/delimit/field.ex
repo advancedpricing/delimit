@@ -57,7 +57,8 @@ defmodule Delimit.Field do
           default: any(),
           read_fn: (String.t() -> any()),
           write_fn: (any() -> String.t()),
-          nil_on_empty: boolean()
+          nil_on_empty: boolean(),
+          label: String.t()
           | boolean_opts()
           | date_opts()
         ]

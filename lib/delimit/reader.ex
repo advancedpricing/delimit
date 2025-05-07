@@ -56,9 +56,8 @@ defmodule Delimit.Reader do
     configure_parser(options)
 
     # Read the file
-    path
-    |> File.read!()
-    |> read_string(schema, options)
+    contents = File.read!(path)
+    read_string(schema, contents, options)
   end
 
   @doc """
@@ -80,8 +79,8 @@ defmodule Delimit.Reader do
       iex> MyApp.Person.read_string(csv_data)
       [%{first_name: "John", last_name: "Doe", age: 42}]
   """
-  @spec read_string(binary(), Schema.t(), read_options()) :: [struct() | map()]
-  def read_string(string, %Schema{} = schema, opts \\ []) when is_binary(string) do
+  @spec read_string(Schema.t(), binary(), read_options()) :: [struct() | map()]
+  def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
