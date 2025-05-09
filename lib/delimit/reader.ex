@@ -44,9 +44,9 @@ defmodule Delimit.Reader do
   ## Example
 
       iex> MyApp.Person.read("people.csv")
-      [%{first_name: "John", last_name: "Doe", age: 42}, ...]
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
   """
-  @spec read_file(Schema.t(), Path.t(), read_options()) :: [struct() | map()]
+  @spec read_file(Schema.t(), Path.t(), read_options()) :: [struct()]
   def read_file(%Schema{} = schema, path, opts \\ []) do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
@@ -76,22 +76,22 @@ defmodule Delimit.Reader do
 
       iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
       iex> MyApp.Person.read_string(csv_data)
-      [%{first_name: "John", last_name: "Doe", age: 42}]
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
   """
-  @spec read_string(Schema.t(), binary(), read_options()) :: [struct() | map()]
+  @spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
   def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
     # Get parser
     parser = get_parser(options)
-    
+
     # Call internal implementation
     read_string(schema, string, options, parser)
   end
-  
+
   # Internal implementation with parser provided
-  @spec read_string(Schema.t(), binary(), read_options(), module()) :: [struct() | map()]
+  @spec read_string(Schema.t(), binary(), read_options(), module()) :: [struct()]
   defp read_string(%Schema{} = schema, string, options, parser) when is_binary(string) do
     # Parse the string
     rows = parse_with_options(string, options, parser)
@@ -100,8 +100,7 @@ defmodule Delimit.Reader do
     {headers, data_rows} = extract_headers(rows, options)
 
     # Check if we have any data rows
-    data_rows
-    |> Enum.map(fn row -> 
+    Enum.map(data_rows, fn row ->
       Schema.to_struct(schema, row, headers)
     end)
   end
@@ -124,7 +123,7 @@ defmodule Delimit.Reader do
       iex> MyApp.Person.stream("large_people_file.csv")
       iex> |> Stream.take(10)
       iex> |> Enum.to_list()
-      [%{first_name: "John", last_name: "Doe", age: 42}, ...]
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
   """
   @spec stream_file(Schema.t(), Path.t(), read_options()) :: Enumerable.t()
   def stream_file(%Schema{} = schema, path, opts \\ []) do
@@ -135,22 +134,22 @@ defmodule Delimit.Reader do
     parser = get_parser(options)
 
     # Create the base stream
-    stream = 
+    stream =
       path
       |> File.stream!()
       |> stream_with_options(options, parser)
-    
+
     # If headers are enabled, we need to handle them
     if Keyword.get(options, :headers, true) do
       {headers_stream, data_stream} = extract_headers_from_stream(stream)
-      
+
       # Map each row to a struct
-      Stream.map(data_stream, fn row -> 
+      Stream.map(data_stream, fn row ->
         Schema.to_struct(schema, row, headers_stream)
       end)
     else
       # No headers, just map each row to a struct
-      Stream.map(stream, fn row -> 
+      Stream.map(stream, fn row ->
         Schema.to_struct(schema, row, nil)
       end)
     end
@@ -159,13 +158,14 @@ defmodule Delimit.Reader do
   # Get a parser with the given options
   defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
-    
+
     # Create a unique module name to avoid redefinition warnings
-    unique_module_name = String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
-    
+    unique_module_name =
+      String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
+
     # Create a dynamic parser with our options
     result = NimbleCSV.define(unique_module_name, separator: delimiter)
-    
+
     # Extract the module name from the result
     case result do
       # When it returns the module directly
@@ -182,20 +182,21 @@ defmodule Delimit.Reader do
     # Apply CSV parsing - normalize line endings first
     string = String.replace(string, "\r\n", "\n")
     rows = parser.parse_string(string)
-    
+
     # Apply skipping options
     skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_fn = Keyword.get(options, :skip_while)
-    
-    rows = if skip_lines > 0 do
-      Enum.drop(rows, skip_lines)
-    else
-      rows
-    end
-    
+
+    rows =
+      if skip_lines > 0 do
+        Enum.drop(rows, skip_lines)
+      else
+        rows
+      end
+
     # Apply skip_while if provided
     if skip_fn do
-      Enum.drop_while(rows, fn row -> 
+      Enum.drop_while(rows, fn row ->
         raw_line = Enum.join(row, Keyword.get(options, :delimiter, ","))
         skip_fn.(raw_line)
       end)
@@ -208,20 +209,21 @@ defmodule Delimit.Reader do
   defp stream_with_options(stream, options, parser) do
     # Apply CSV parsing
     stream = parser.parse_stream(stream)
-    
+
     # Apply skipping options
     skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_fn = Keyword.get(options, :skip_while)
-    
-    stream = if skip_lines > 0 do
-      Stream.drop(stream, skip_lines)
-    else
-      stream
-    end
-    
+
+    stream =
+      if skip_lines > 0 do
+        Stream.drop(stream, skip_lines)
+      else
+        stream
+      end
+
     # Apply skip_while if provided
     if skip_fn do
-      Stream.drop_while(stream, fn row -> 
+      Stream.drop_while(stream, fn row ->
         raw_line = Enum.join(row, Keyword.get(options, :delimiter, ","))
         skip_fn.(raw_line)
       end)
@@ -232,19 +234,18 @@ defmodule Delimit.Reader do
 
   # Extract headers from rows
   defp extract_headers(rows, options) do
-    cond do
-      Keyword.get(options, :headers, true) and length(rows) > 0 ->
-        [headers | data_rows] = rows
-        {headers, data_rows}
-      true ->
-        {nil, rows}
+    if Keyword.get(options, :headers, true) and length(rows) > 0 do
+      [headers | data_rows] = rows
+      {headers, data_rows}
+    else
+      {nil, rows}
     end
   end
 
   # Extract headers from a stream
   defp extract_headers_from_stream(stream) do
     first_chunk = Enum.take(stream, 1)
-    
+
     case first_chunk do
       [headers] -> {headers, Stream.drop(stream, 1)}
       [] -> {nil, stream}

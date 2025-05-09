@@ -3,12 +3,13 @@
 [![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
 [![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/jcowgar/delimit/blob/main/LICENSE)
 
-Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing, validation, and transformation capabilities.
+Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities.
 
 ## Features
 
 - **Schema-based approach**: Define the structure of your delimited files using Ecto-like schemas
-- **Strong typing**: Convert between string values and proper Elixir types (integers, floats, booleans, dates, etc.)
+- **Strong typing with structs**: Convert between string values and proper Elixir types in type-safe structs
+- **Full TypeSpecs**: Automatically generated type specifications for your schemas
 - **Streaming support**: Process large files efficiently with Elixir streams
 - **Customizable**: Configure delimiters, headers, type conversion, and more
 - **Embedded schemas**: Nest schemas for complex data structures
@@ -54,20 +55,35 @@ defmodule MyApp.Person do
 end
 ```
 
+This automatically creates a struct with type specifications:
+
+```elixir
+@type t :: %__MODULE__{
+  first_name: String.t(),
+  last_name: String.t(),
+  age: integer(),
+  salary: float(),
+  birthday: Date.t(),
+  active: boolean(),
+  notes: String.t()
+}
+```
+
 ### Reading data
 
 Read data from a file:
 
 ```elixir
-# Read all records at once
+# Read all records at once - returns a list of structs
 people = MyApp.Person.read("people.csv")
+first_person = List.first(people) # returns a %MyApp.Person{} struct
 
 # Stream records for better memory efficiency
 people_stream =
   "large_file.csv"
   |> MyApp.Person.stream()
   |> Stream.filter(fn person -> person.age > 30 end)
-  |> Stream.map(fn person -> Map.update!(person, :salary, & &1 * 1.1) end)
+  |> Stream.map(fn person -> %{person | salary: person.salary * 1.1} end)
   |> Enum.to_list()
 
 # Read from a string
@@ -81,9 +97,9 @@ Write data to a file:
 
 ```elixir
 people = [
-  %{first_name: "John", last_name: "Doe", age: 42,
+  %MyApp.Person{first_name: "John", last_name: "Doe", age: 42,
     salary: 50000.0, birthday: ~D[1980-01-15], active: true, notes: "Senior developer"},
-  %{first_name: "Jane", last_name: "Smith", age: 35,
+  %MyApp.Person{first_name: "Jane", last_name: "Smith", age: 35,
     salary: 60000.0, birthday: ~D[1987-05-22], active: true, notes: nil}
 ]
 
@@ -95,7 +111,7 @@ csv_string = MyApp.Person.write_string(people)
 
 # Stream data to a file (memory efficient)
 stream = Stream.map(1..1000, fn i ->
-  %{
+  %MyApp.Person{
     first_name: "User#{i}",
     last_name: "Test",
     age: 20 + rem(i, 50),
@@ -142,11 +158,42 @@ field :notes, :string, nil_on_empty: true
 # Custom values for boolean fields
 field :status, :boolean, true_values: ["Y", "Yes"], false_values: ["N", "No"]
 
-# Custom conversion functions
-field :tags, :string, read_fn: &String.split(&1, "|"), write_fn: &Enum.join(&1, "|")
+# Custom conversion functions with explicit struct type
+field :tags, :string, 
+  read_fn: &String.split(&1, "|"), 
+  write_fn: &Enum.join(&1, "|"), 
+  struct_type: {:list, :string}
 ```
 
 ## Advanced Usage
+
+### Type Specifications
+
+Delimit automatically generates typespecs for your schemas, including support for complex field types:
+
+```elixir
+defmodule MyApp.User do
+  use Delimit
+
+  layout do
+    field :name, :string
+    # File contains comma-separated tags, but in memory it's a list
+    field :tags, :string, 
+      read_fn: &String.split(&1, ","), 
+      write_fn: &Enum.join(&1, ","), 
+      struct_type: {:list, :string}
+      
+    # Map type with string keys and integer values
+    field :scores, :string,
+      read_fn: &parse_scores/1,
+      write_fn: &serialize_scores/1,
+      struct_type: {:map, :string, :integer}
+  end
+  
+  defp parse_scores(str), do: # Parse string to map
+  defp serialize_scores(map), do: # Convert map to string
+end
+```
 
 ### Embedded Schemas
 
@@ -177,6 +224,14 @@ end
 
 # This will handle headers like:
 # name,email,street,city,state,postal_code,billing_street,billing_city,billing_state,billing_postal_code
+# 
+# And create structs like:
+# %MyApp.Customer{
+#   name: "John Doe",
+#   email: "john@example.com",
+#   address: %MyApp.Address{street: "123 Main St", ...},
+#   billing_address: %MyApp.Address{street: "456 Billing St", ...}
+# }
 ```
 
 ### Custom Delimiters

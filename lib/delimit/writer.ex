@@ -29,7 +29,7 @@ defmodule Delimit.Writer do
 
     * `schema` - The schema definition
     * `path` - Path to the output file
-    * `data` - List of structs or maps to write
+    * `data` - List of structs to write
     * `opts` - Write options that override schema options
 
   ## Returns
@@ -38,11 +38,11 @@ defmodule Delimit.Writer do
 
   ## Example
 
-      iex> people = [%{first_name: "John", last_name: "Doe", age: 42}]
+      iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
       iex> MyApp.Person.write("people.csv", people)
       :ok
   """
-  @spec write_file(Schema.t(), Path.t(), [struct() | map()], write_options()) :: :ok
+  @spec write_file(Schema.t(), Path.t(), [struct()], write_options()) :: :ok
   def write_file(%Schema{} = schema, path, data, opts \\ []) do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
@@ -61,7 +61,7 @@ defmodule Delimit.Writer do
   ## Parameters
 
     * `schema` - The schema definition
-    * `data` - List of structs or maps to write
+    * `data` - List of structs to write
     * `opts` - Write options that override schema options
 
   ## Returns
@@ -70,24 +70,24 @@ defmodule Delimit.Writer do
 
   ## Example
 
-      iex> people = [%{first_name: "John", last_name: "Doe", age: 42}]
+      iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
       iex> MyApp.Person.write_string(people)
       "first_name,last_name,age\\nJohn,Doe,42\\n"
   """
-  @spec write_string(Schema.t(), [struct() | map()], write_options()) :: binary()
+  @spec write_string(Schema.t(), [struct()], write_options()) :: binary()
   def write_string(%Schema{} = schema, data, opts \\ []) when is_list(data) do
     # Merge options from schema and function call
     options = Keyword.merge(schema.options, opts)
 
     # Get the parser with our options
     parser = get_parser(options)
-    
+
     # Call the internal implementation with the parser
     write_string(schema, data, options, parser)
   end
-  
+
   # Internal implementation with parser provided
-  @spec write_string(Schema.t(), [struct() | map()], write_options(), module()) :: binary()
+  @spec write_string(Schema.t(), [struct()], write_options(), module()) :: binary()
   defp write_string(%Schema{} = schema, data, options, parser) do
     # Prepare headers if needed
     rows =
@@ -112,7 +112,7 @@ defmodule Delimit.Writer do
 
     * `schema` - The schema definition
     * `path` - Path to the output file
-    * `data_stream` - Stream of structs or maps to write
+    * `data_stream` - Stream of structs to write
     * `opts` - Write options that override schema options
 
   ## Returns
@@ -121,7 +121,7 @@ defmodule Delimit.Writer do
 
   ## Example
 
-      iex> stream = Stream.map(1..1000, fn i -> %{first_name: "User", last_name: "User", age: i} end)
+      iex> stream = Stream.map(1..1000, fn i -> %MyApp.Person{first_name: "User", last_name: "User", age: i} end)
       iex> MyApp.Person.stream_to_file("people.csv", stream)
       :ok
   """
@@ -150,10 +150,9 @@ defmodule Delimit.Writer do
         row = Schema.to_row(schema, item)
         parser.dump_to_iodata([row])
       end)
-      |> Stream.each(fn row_data ->
+      |> Enum.each(fn row_data ->
         IO.binwrite(file, row_data)
       end)
-      |> Stream.run()
 
     # Close the file
     File.close(file)
@@ -167,11 +166,13 @@ defmodule Delimit.Writer do
     line_ending = Keyword.get(options, :line_ending, "\n")
 
     # Create a unique module name to avoid redefinition warnings
-    unique_module_name = String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
-    
+    unique_module_name =
+      String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
+
     # Create a dynamic parser with our options
-    result = NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
-    
+    result =
+      NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
+
     # Extract the module name from the result
     case result do
       # When it returns the module directly
@@ -189,26 +190,27 @@ defmodule Delimit.Writer do
       Schema.to_row(schema, item, headers)
     end)
   end
-  
+
   # Collect all headers from schema, including those from embedded schemas
-  @doc false # exposed for testing
+  # exposed for testing
+  @doc false
   def collect_headers(schema) do
     # Get regular field headers
     regular_headers = Schema.headers(schema)
-    
+
     # Get headers from embedded schemas
-    embed_headers = 
+    embed_headers =
       schema
       |> Schema.get_embeds()
       |> Enum.flat_map(fn field ->
         embed_module = schema.embeds[field.name]
         embed_schema = embed_module.__delimit_schema__()
         prefix = Schema.get_embed_prefix(field)
-        
+
         # Get headers with the prefix applied
         Schema.headers(embed_schema, prefix)
       end)
-    
+
     # Combine regular and embedded headers
     regular_headers ++ embed_headers
   end

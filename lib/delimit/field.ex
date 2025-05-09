@@ -24,6 +24,20 @@ defmodule Delimit.Field do
 
   @typedoc """
   Supported field types.
+
+  Basic field types:
+  * `:string` - String values
+  * `:integer` - Integer values
+  * `:float` - Floating point values
+  * `:boolean` - Boolean values
+  * `:date` - Date values
+  * `:datetime` - DateTime values
+  * `:embed` - Embedded struct
+
+  Complex type annotations (for `struct_type` option):
+  * `{:list, inner_type}` - A list where each element is of type `inner_type`
+  * `{:map, key_type, value_type}` - A map with keys of `key_type` and values of `value_type`
+  * `{:map, value_type}` - A map with atom keys and values of `value_type`
   """
   @type field_type ::
           :string
@@ -33,6 +47,9 @@ defmodule Delimit.Field do
           | :date
           | :datetime
           | :embed
+          | {:list, field_type()}
+          | {:map, field_type()}
+          | {:map, field_type(), field_type()}
 
   @typedoc """
   Boolean field configuration options.
@@ -51,6 +68,14 @@ defmodule Delimit.Field do
 
   @typedoc """
   General field configuration options.
+
+  * `:optional` - Whether the field is optional (default: false)
+  * `:default` - Default value if the field is missing
+  * `:read_fn` - Custom function to parse the raw field value
+  * `:write_fn` - Custom function to convert the field value to string
+  * `:nil_on_empty` - If true, empty strings become nil (default: true)
+  * `:label` - Custom header label for this field (instead of the field name)
+  * `:struct_type` - The type to use in the struct (different from file type)
   """
   @type field_opts :: [
           optional: boolean(),
@@ -58,9 +83,11 @@ defmodule Delimit.Field do
           read_fn: (String.t() -> any()),
           write_fn: (any() -> String.t()),
           nil_on_empty: boolean(),
-          label: String.t()
-          | boolean_opts()
-          | date_opts()
+          label: String.t(),
+          struct_type:
+            field_type()
+            | boolean_opts()
+            | date_opts()
         ]
 
   @doc """
@@ -83,7 +110,7 @@ defmodule Delimit.Field do
   @spec new(atom(), field_type(), field_opts()) :: t()
   def new(name, type, opts \\ []) when is_atom(name) and is_atom(type) and is_list(opts) do
     # Validate the field type
-    unless type in [:string, :integer, :float, :boolean, :date, :datetime, :embed] do
+    if type not in [:string, :integer, :float, :boolean, :date, :datetime, :embed] do
       raise ArgumentError, "Unsupported field type: #{inspect(type)}"
     end
 
@@ -118,7 +145,7 @@ defmodule Delimit.Field do
     if is_nil(value) do
       field.opts[:default]
     else
-      value = if field.opts[:trim] != false, do: String.trim(value), else: value
+      value = if field.opts[:trim] == false, do: value, else: String.trim(value)
 
       # Handle empty strings
       if value == "" and field.opts[:nil_on_empty] != false do
@@ -171,14 +198,15 @@ defmodule Delimit.Field do
 
     # Use Date.from_iso8601 for standard ISO dates to avoid Timex warnings
     # when possible
-    result = if format == "{YYYY}-{0M}-{0D}" do
-      Date.from_iso8601(value)
-    else
-      case Timex.parse(value, format) do
-        {:ok, date} -> {:ok, date}
-        {:error, reason} -> {:error, reason}
+    result =
+      if format == "{YYYY}-{0M}-{0D}" do
+        Date.from_iso8601(value)
+      else
+        case Timex.parse(value, format) do
+          {:ok, date} -> {:ok, date}
+          {:error, reason} -> {:error, reason}
+        end
       end
-    end
 
     case result do
       {:ok, date} -> date
@@ -191,17 +219,18 @@ defmodule Delimit.Field do
 
     # Use DateTime.from_iso8601 for standard ISO dates to avoid Timex warnings
     # when possible
-    result = if format == "{ISO:Extended}" do
-      case DateTime.from_iso8601(value) do
-        {:ok, datetime, _offset} -> {:ok, datetime}
-        error -> error
+    result =
+      if format == "{ISO:Extended}" do
+        case DateTime.from_iso8601(value) do
+          {:ok, datetime, _offset} -> {:ok, datetime}
+          error -> error
+        end
+      else
+        case Timex.parse(value, format) do
+          {:ok, datetime} -> {:ok, datetime}
+          {:error, reason} -> {:error, reason}
+        end
       end
-    else
-      case Timex.parse(value, format) do
-        {:ok, datetime} -> {:ok, datetime}
-        {:error, reason} -> {:error, reason}
-      end
-    end
 
     case result do
       {:ok, datetime} -> datetime
@@ -269,7 +298,7 @@ defmodule Delimit.Field do
 
   defp do_to_string(value, %__MODULE__{type: :date} = field) do
     format = field.opts[:format] || "{YYYY}-{0M}-{0D}"
-    
+
     # Use Date.to_iso8601 for standard ISO dates to avoid Timex warnings
     if format == "{YYYY}-{0M}-{0D}" do
       Date.to_iso8601(value)
@@ -280,7 +309,7 @@ defmodule Delimit.Field do
 
   defp do_to_string(value, %__MODULE__{type: :datetime} = field) do
     format = field.opts[:format] || "{ISO:Extended}"
-    
+
     # Use DateTime.to_iso8601 for standard ISO dates to avoid Timex warnings
     if format == "{ISO:Extended}" do
       DateTime.to_iso8601(value)

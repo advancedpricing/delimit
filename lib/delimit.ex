@@ -4,6 +4,8 @@ defmodule Delimit do
 
   Delimit allows you to define a schema for delimited data files (CSV, TSV, etc.)
   and provides functions for reading, writing, and manipulating that data.
+  The library automatically generates structs based on your schema definition,
+  complete with proper typespecs.
 
   ## Example
 
@@ -36,9 +38,12 @@ defmodule Delimit do
   defmacro __using__(_opts) do
     quote do
       import Delimit, only: [layout: 1]
-      
+
       @delimit_schema Delimit.Schema.new(__MODULE__)
-      
+      @delimit_field_types %{}
+
+      Module.register_attribute(__MODULE__, :delimit_field_types, accumulate: false)
+
       @before_compile Delimit
     end
   end
@@ -56,11 +61,10 @@ defmodule Delimit do
   """
   defmacro layout(do: block) do
     quote do
-      import Delimit, only: [field: 2, field: 3, embeds_one: 2, embeds_one: 3]
-      
-      unquote(block)
-      
       import Delimit, only: []
+      import Delimit, only: [field: 2, field: 3, embeds_one: 2, embeds_one: 3]
+
+      unquote(block)
     end
   end
 
@@ -79,6 +83,11 @@ defmodule Delimit do
   defmacro field(name, type) do
     quote do
       @delimit_schema Delimit.Schema.add_field(@delimit_schema, unquote(name), unquote(type))
+      @delimit_field_types Map.put(
+                             @delimit_field_types,
+                             unquote(name),
+                             Delimit.Schema.type_to_typespec(unquote(type))
+                           )
     end
   end
 
@@ -101,16 +110,34 @@ defmodule Delimit do
     * `:read_fn` - Custom function to parse the raw field value
     * `:write_fn` - Custom function to convert the field value to string
     * `:label` - Custom header label for this field (instead of the field name)
+    * `:struct_type` - The type to use in the struct (different from file type)
 
   ## Example
 
       field :birthday, :date, format: "YYYY-MM-DD"
       field :active, :boolean, true_values: ["Y", "YES"], false_values: ["N", "NO"]
       field :email, :string, label: "contact_email"
+      field :tags, :string, read_fn: &split_tags/1, write_fn: &join_tags/1, struct_type: {:list, :string}
   """
   defmacro field(name, type, opts) do
     quote do
-      @delimit_schema Delimit.Schema.add_field(@delimit_schema, unquote(name), unquote(type), unquote(opts))
+      @delimit_schema Delimit.Schema.add_field(
+                        @delimit_schema,
+                        unquote(name),
+                        unquote(type),
+                        unquote(opts)
+                      )
+
+      # Get the proper type for the struct field
+      field_type =
+        if Keyword.has_key?(unquote(opts), :struct_type) do
+          struct_type = Keyword.get(unquote(opts), :struct_type)
+          Delimit.Schema.type_to_typespec(struct_type)
+        else
+          Delimit.Schema.type_to_typespec(unquote(type))
+        end
+
+      @delimit_field_types Map.put(@delimit_field_types, unquote(name), field_type)
     end
   end
 
@@ -152,18 +179,72 @@ defmodule Delimit do
   """
   defmacro embeds_one(name, module, opts) do
     quote do
-      @delimit_schema Delimit.Schema.add_embed(@delimit_schema, unquote(name), unquote(module), unquote(opts))
+      @delimit_schema Delimit.Schema.add_embed(
+                        @delimit_schema,
+                        unquote(name),
+                        unquote(module),
+                        unquote(opts)
+                      )
     end
   end
 
   @doc false
-  defmacro __before_compile__(_env) do
+  defmacro __before_compile__(env) do
+    module = env.module
+    schema = Module.get_attribute(module, :delimit_schema)
+    field_types = Module.get_attribute(module, :delimit_field_types)
+
+    # Ensure we have a valid schema and field_types
+    if is_nil(schema) or !is_map(schema) do
+      raise "Invalid schema found in module #{module}"
+    end
+
+    # Extract field information for struct and type definitions
+    fields =
+      schema.fields
+      |> Enum.filter(fn field -> field.type != :embed end)
+      |> Enum.map(fn field ->
+        default_value = field.opts[:default]
+        {field.name, default_value}
+      end)
+
+    # Create type specs for each field
+    field_type_specs =
+      Enum.map(fields, fn {field_name, _default} ->
+        type_spec = Map.get(field_types, field_name, quote(do: any()))
+        {field_name, type_spec}
+      end)
+
+    # Get the module doc or default - ensure it's a string to avoid protocol errors
+    module_doc =
+      case Module.get_attribute(module, :moduledoc) do
+        nil -> "Generated struct for delimited data."
+        false -> false
+        doc when is_binary(doc) -> doc
+        _other -> "Generated struct for delimited data."
+      end
+
+    # Use simple docs to avoid String.Chars protocol errors with complex types
+    complete_doc = module_doc
+    complete_typedoc = "Struct representing a record in a delimited file."
+
     quote do
+      @moduledoc unquote(complete_doc)
+
+      # Define struct for this module
+      defstruct(unquote(Macro.escape(fields)))
+
+      # Define type for this struct
+      @typedoc unquote(complete_typedoc)
+      @type t :: %__MODULE__{
+              unquote_splicing(field_type_specs)
+            }
+
       # Store the schema in a module attribute accessible at runtime
       def __delimit_schema__ do
         @delimit_schema
       end
-      
+
       @doc """
       Reads delimited data from a file.
 
@@ -174,18 +255,18 @@ defmodule Delimit do
 
       ## Returns
 
-        * List of parsed records based on the schema
+        * List of structs with parsed data based on schema
 
       ## Examples
 
           iex> MyApp.Person.read("people.csv")
-          [%{first_name: "John", last_name: "Doe", age: 42}, ...]
+          [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
       """
-      @spec read(Path.t(), Keyword.t()) :: [map()]
+      @spec read(Path.t(), Keyword.t()) :: [t()]
       def read(path, opts \\ []) do
         Delimit.Reader.read_file(__delimit_schema__(), path, opts)
       end
-      
+
       @doc """
       Reads delimited data from a string.
 
@@ -196,19 +277,19 @@ defmodule Delimit do
 
       ## Returns
 
-        * List of parsed records based on the schema
+        * List of structs with parsed data based on schema
 
       ## Examples
 
           iex> csv = "first_name,last_name\\nJohn,Doe"
           iex> MyApp.Person.read_string(csv)
-          [%{first_name: "John", last_name: "Doe"}]
+          [%MyApp.Person{first_name: "John", last_name: "Doe"}]
       """
-      @spec read_string(binary(), Keyword.t()) :: [map()]
+      @spec read_string(binary(), Keyword.t()) :: [t()]
       def read_string(string, opts \\ []) do
         Delimit.Reader.read_string(__delimit_schema__(), string, opts)
       end
-      
+
       @doc """
       Streams delimited data from a file.
 
@@ -219,27 +300,27 @@ defmodule Delimit do
 
       ## Returns
 
-        * Stream of parsed records based on the schema
+        * Stream of structs with parsed data based on schema
 
       ## Examples
 
           iex> MyApp.Person.stream("large_file.csv")
           iex> |> Stream.take(10)
           iex> |> Enum.to_list()
-          [%{first_name: "John", last_name: "Doe"}, ...]
+          [%MyApp.Person{first_name: "John", last_name: "Doe"}, ...]
       """
       @spec stream(Path.t(), Keyword.t()) :: Enumerable.t()
       def stream(path, opts \\ []) do
         Delimit.Reader.stream_file(__delimit_schema__(), path, opts)
       end
-      
+
       @doc """
       Writes delimited data to a file.
 
       ## Parameters
 
         * `path` - Path to the output file
-        * `data` - List of structs or maps to write
+        * `data` - List of structs to write
         * `opts` - Options for writing (headers, delimiter, etc.)
 
       ## Returns
@@ -248,21 +329,21 @@ defmodule Delimit do
 
       ## Examples
 
-          iex> people = [%{first_name: "John", last_name: "Doe"}]
+          iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
           iex> MyApp.Person.write("people.csv", people)
           :ok
       """
-      @spec write(Path.t(), [map()], Keyword.t()) :: :ok
+      @spec write(Path.t(), [t()], Keyword.t()) :: :ok
       def write(path, data, opts \\ []) do
         Delimit.Writer.write_file(__delimit_schema__(), path, data, opts)
       end
-      
+
       @doc """
       Writes delimited data to a string.
 
       ## Parameters
 
-        * `data` - List of structs or maps to write
+        * `data` - List of structs to write
         * `opts` - Options for writing (headers, delimiter, etc.)
 
       ## Returns
@@ -271,22 +352,22 @@ defmodule Delimit do
 
       ## Examples
 
-          iex> people = [%{first_name: "John", last_name: "Doe"}]
+          iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
           iex> MyApp.Person.write_string(people)
           "first_name,last_name\\nJohn,Doe\\n"
       """
-      @spec write_string([map()], Keyword.t()) :: binary()
+      @spec write_string([t()], Keyword.t()) :: binary()
       def write_string(data, opts \\ []) do
         Delimit.Writer.write_string(__delimit_schema__(), data, opts)
       end
-      
+
       @doc """
       Streams delimited data to a file.
 
       ## Parameters
 
         * `path` - Path to the output file
-        * `data_stream` - Stream of structs or maps to write
+        * `data_stream` - Stream of structs to write
         * `opts` - Options for writing (headers, delimiter, etc.)
 
       ## Returns
@@ -295,7 +376,7 @@ defmodule Delimit do
 
       ## Examples
 
-          iex> stream = Stream.map(1..100, &(%{first_name: "User \#{&1}"}))
+          iex> stream = Stream.map(1..100, &(%MyApp.Person{first_name: "User \#{&1}"}))
           iex> MyApp.Person.stream_to_file("people.csv", stream)
           :ok
       """
