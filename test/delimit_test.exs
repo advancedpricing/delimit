@@ -1,5 +1,5 @@
 defmodule DelimitTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   doctest Delimit
 

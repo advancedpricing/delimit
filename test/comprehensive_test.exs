@@ -1,5 +1,5 @@
 defmodule Delimit.ComprehensiveTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   # Define a simple schema for most tests
   defmodule SimpleSchema do
@@ -216,8 +216,8 @@ defmodule Delimit.ComprehensiveTest do
         String.replace(
           """
           id,name,description
-          1, John Doe , This is a description with spaces 
-          2,  Jane Smith,  Another description  
+          1, John Doe , This is a description with spaces
+          2,  Jane Smith,  Another description
           """,
           "\r\n",
           "\n"

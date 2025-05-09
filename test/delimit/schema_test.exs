@@ -1,5 +1,5 @@
 defmodule Delimit.SchemaTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   alias Delimit.Schema
 

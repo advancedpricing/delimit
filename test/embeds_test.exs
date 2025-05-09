@@ -1,5 +1,5 @@
 defmodule DelimitEmbedsTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   # First define modules separately to ensure proper compilation and struct generation
   defmodule Address do

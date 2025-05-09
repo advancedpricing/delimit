@@ -6,7 +6,7 @@ defmodule CustomConversionHelpers do
 end
 
 defmodule Delimit.IntegrationTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
 
   # Define a test schema
   defmodule TestPerson do
