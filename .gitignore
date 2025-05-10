@@ -21,3 +21,9 @@ delimit-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# Benchee output data
+/bench/output/
+
+# Apple goodness (not)
+.DS_Store

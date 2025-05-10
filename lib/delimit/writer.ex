@@ -89,19 +89,54 @@ defmodule Delimit.Writer do
   # Internal implementation with parser provided
   @spec write_string(Schema.t(), [struct()], write_options(), module()) :: binary()
   defp write_string(%Schema{} = schema, data, options, parser) do
-    # Prepare headers if needed
-    rows =
+    # Fast path for small datasets (batch processing)
+    if length(data) < 1000 do
+      # Standard process for small datasets
+      rows =
+        if Keyword.get(options, :headers, true) do
+          # Get all headers including those from embedded schemas
+          headers = collect_headers(schema)
+          [headers | prepare_data_rows(schema, data, headers)]
+        else
+          prepare_data_rows(schema, data, nil)
+        end
+  
+      # Generate the delimited string
+      rows
+      |> parser.dump_to_iodata()
+      |> IO.iodata_to_binary()
+    else
+      # Optimized path for large datasets
+      write_string_optimized(schema, data, options, parser) 
+    end
+  end
+  
+  # Optimized version that processes data in chunks and uses iodata more efficiently
+  defp write_string_optimized(%Schema{} = schema, data, options, parser) do
+    # Write headers if needed
+    header_iodata = 
       if Keyword.get(options, :headers, true) do
-        # Get all headers including those from embedded schemas
         headers = collect_headers(schema)
-        [headers | prepare_data_rows(schema, data, headers)]
+        parser.dump_to_iodata([headers])
       else
-        prepare_data_rows(schema, data, nil)
+        []
       end
-
-    # Generate the delimited string
-    rows
-    |> parser.dump_to_iodata()
+      
+    # Process rows in chunks to avoid excessive memory usage
+    chunk_size = 1000
+    
+    # Build iodata in chunks
+    chunks = 
+      data
+      |> Stream.chunk_every(chunk_size)
+      |> Stream.map(fn chunk -> 
+        rows = prepare_data_rows(schema, chunk, nil)
+        parser.dump_to_iodata(rows)
+      end)
+      |> Enum.to_list()
+    
+    # Combine header and data chunks
+    [header_iodata | chunks]
     |> IO.iodata_to_binary()
   end
 
@@ -134,25 +169,34 @@ defmodule Delimit.Writer do
     parser = get_parser(options)
 
     # Open file for writing
-    {:ok, file} = File.open(path, [:write, :utf8])
+    {:ok, file} = File.open(path, [:write, :utf8, :delayed_write])
 
     # Write headers if needed
-    if Keyword.get(options, :headers, true) do
-      headers = collect_headers(schema)
-      header_row = parser.dump_to_iodata([headers])
-      IO.binwrite(file, header_row)
-    end
+    header_positions = 
+      if Keyword.get(options, :headers, true) do
+        headers = collect_headers(schema)
+        header_row = parser.dump_to_iodata([headers])
+        IO.binwrite(file, header_row)
+        
+        # Cache header positions for efficient row conversion
+        cache_header_positions(schema, headers)
+      else
+        %{}
+      end
 
-    # Stream each item, convert to row, and write to file
+    # Process in chunks to optimize memory usage and improve performance
+    chunk_size = 1000
+    
+    # Stream and write in chunks
     _result =
       data_stream
-      |> Stream.map(fn item ->
-        row = Schema.to_row(schema, item)
-        parser.dump_to_iodata([row])
+      |> Stream.chunk_every(chunk_size)
+      |> Stream.each(fn chunk ->
+        rows = prepare_data_rows(schema, chunk, nil)
+        rows_iodata = parser.dump_to_iodata(rows)
+        IO.binwrite(file, rows_iodata)
       end)
-      |> Enum.each(fn row_data ->
-        IO.binwrite(file, row_data)
-      end)
+      |> Stream.run()
 
     # Close the file
     File.close(file)
@@ -164,31 +208,50 @@ defmodule Delimit.Writer do
   defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
     line_ending = Keyword.get(options, :line_ending, "\n")
-
-    # Create a unique module name to avoid redefinition warnings
-    unique_module_name =
-      String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
-
-    # Create a dynamic parser with our options
-    result =
+    
+    # Use the optimized parsers module
+    parser = Delimit.Parsers.get_parser(delimiter)
+    
+    # For custom line endings, we need to re-define the parser
+    if line_ending != "\n" do
+      # Create a unique module name for custom line endings
+      unique_module_name =
+        String.to_atom("DelimitLineEndingParser_#{System.unique_integer([:positive])}")
+      
+      # Define with custom line separator
       NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
-
-    # Extract the module name from the result
-    case result do
-      # When it returns the module directly
-      module when is_atom(module) -> module
-      # When it returns a tuple with module info
-      {:module, module, _binary, _term} -> module
-      # Fall back to the name if something else is returned
-      _ -> unique_module_name
+      unique_module_name
+    else
+      parser
     end
   end
 
   # Prepare data rows for writing
   defp prepare_data_rows(schema, data, headers) do
-    Enum.map(data, fn item ->
-      Schema.to_row(schema, item, headers)
+    # Fast-path for performance when headers are known
+    # Cache header positions for optimized row conversion
+    if headers do
+      header_positions = cache_header_positions(schema, headers)
+      
+      Enum.map(data, fn item ->
+        Schema.to_row(schema, item, headers, header_positions)
+      end)
+    else
+      Enum.map(data, fn item ->
+        Schema.to_row(schema, item, headers)
+      end)
+    end
+  end
+  
+  # Cache header positions for faster field lookups
+  defp cache_header_positions(schema, headers) do
+    schema.fields
+    |> Enum.filter(fn field -> field.type != :embed end)
+    |> Enum.map(fn field -> 
+      label = field.opts[:label] || Atom.to_string(field.name)
+      {field.name, Enum.find_index(headers, &(&1 == label))}
     end)
+    |> Map.new()
   end
 
   # Collect all headers from schema, including those from embedded schemas

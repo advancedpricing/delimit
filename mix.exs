@@ -29,6 +29,8 @@ defmodule Delimit.MixProject do
       {:sobelow,
        git: "https://github.com/nccgroup/sobelow", only: [:dev, :test], runtime: false},
       {:styler, "~> 1.0", only: [:dev, :test], runtime: false},
+      {:benchee, "~> 1.1", only: [:dev, :test]},
+      {:benchee_html, "~> 1.0", only: [:dev, :test]},
 
       # Production
       {:nimble_csv, "~> 1.2"},

@@ -140,25 +140,31 @@ defmodule Delimit.Field do
       true
   """
   @spec parse_value(String.t() | nil, t()) :: any()
+  def parse_value(nil, field), do: field.opts[:default]
+  def parse_value("", field) do
+    nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
+    if nil_on_empty, do: field.opts[:default], else: ""
+  end
   def parse_value(value, field) do
-    # If value is nil, return nil
-    if is_nil(value) do
-      field.opts[:default]
+    read_fn = Keyword.get(field.opts, :read_fn)
+    if not is_nil(read_fn) do
+      read_fn.(value)
     else
-      value = if field.opts[:trim] == false, do: value, else: String.trim(value)
-
-      # Handle empty strings
-      if value == "" and field.opts[:nil_on_empty] != false do
-        field.opts[:default]
-      else
-        # If a custom read function is provided, use it
-        if read_fn = field.opts[:read_fn] do
-          read_fn.(value)
-        else
-          do_parse_value(value, field)
-        end
-      end
+      parse_value_with_trim(value, field)
     end
+  end
+
+  defp parse_value_with_trim(value, field) do
+    if Keyword.get(field.opts, :trim) == false do
+      do_parse_value(value, field)
+    else
+      parse_value_trimmed(value, field)
+    end
+  end
+
+  defp parse_value_trimmed(value, field) do
+    # Handle the common case more directly
+    do_parse_value(String.trim(value), field)
   end
 
   # Type-specific parsing functions
@@ -167,29 +173,65 @@ defmodule Delimit.Field do
   end
 
   defp do_parse_value(value, %__MODULE__{type: :integer}) do
-    case Integer.parse(value) do
-      {integer, _} -> integer
-      :error -> raise "Cannot convert '#{value}' to integer"
+    # Fast path for common integer formats
+    case value do
+      <<digit::8>> when digit in ?0..?9 ->
+        # Single digit optimization
+        digit - ?0
+      _ ->
+        # Standard parsing for other cases
+        case Integer.parse(value) do
+          {integer, _} -> integer
+          :error -> raise "Cannot convert '#{value}' to integer"
+        end
     end
   end
 
   defp do_parse_value(value, %__MODULE__{type: :float}) do
-    case Float.parse(value) do
-      {float, _} -> float
-      :error -> raise "Cannot convert '#{value}' to float"
+    # Try to optimize with binary pattern matching for simple cases
+    case value do
+      <<digit::8>> when digit in ?0..?9 ->
+        # Single digit optimization
+        digit - ?0
+      <<digit::8, ".0">> when digit in ?0..?9 ->
+        # Simple decimal optimization
+        digit - ?0
+      _ ->
+        # Standard parsing for other cases
+        case Float.parse(value) do
+          {float, _} -> float
+          :error -> raise "Cannot convert '#{value}' to float"
+        end
     end
   end
 
   defp do_parse_value(value, %__MODULE__{type: :boolean} = field) do
-    true_values = field.opts[:true_values] || ["true", "yes", "y", "1", "t", "on"]
-    false_values = field.opts[:false_values] || ["false", "no", "n", "0", "f", "off"]
-
+    # Use binary pattern matching for common cases (case insensitive)
     downcased = String.downcase(value)
+    
+    case downcased do
+      "true" -> true
+      "yes" -> true
+      "y" -> true
+      "1" -> true
+      "t" -> true
+      "on" -> true
+      "false" -> false
+      "no" -> false
+      "n" -> false
+      "0" -> false
+      "f" -> false
+      "off" -> false
+      _ ->
+        # Fall back to user-defined values if provided
+        true_values = field.opts[:true_values] || []
+        false_values = field.opts[:false_values] || []
 
-    cond do
-      Enum.member?(true_values, downcased) -> true
-      Enum.member?(false_values, downcased) -> false
-      true -> raise "Cannot convert '#{value}' to boolean"
+        cond do
+          Enum.member?(true_values, downcased) -> true
+          Enum.member?(false_values, downcased) -> false
+          true -> raise "Cannot convert '#{value}' to boolean"
+        end
     end
   end
 

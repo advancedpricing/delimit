@@ -213,22 +213,40 @@ defmodule Delimit.Schema do
       iex> Delimit.Schema.to_struct(schema, ["John Doe", "42"])
       %MyApp.Person{name: "John Doe", age: 42}
   """
-  @spec to_struct(t(), [String.t()], [String.t()] | nil) :: struct()
-  def to_struct(%__MODULE__{} = schema, row, headers \\ nil) do
+  @spec to_struct(t(), [String.t()], [String.t()] | nil, map() | nil) :: struct()
+  def to_struct(%__MODULE__{} = schema, row, headers \\ nil, cached_positions \\ nil) do
     # Start with an empty struct of the module type
     struct = struct(schema.module)
 
-    # Process regular fields
-    struct_with_fields = process_fields(schema, row, headers, struct)
+    # If headers are provided, cache the column positions (use provided positions if available)
+    header_positions = cond do
+      not is_nil(cached_positions) -> cached_positions
+      not is_nil(headers) -> cache_header_positions(schema, headers)
+      true -> nil
+    end
+
+    # Process regular fields with cached header positions
+    struct_with_fields = process_fields(schema, row, headers, struct, header_positions)
 
     # Process embedded fields
-    struct_with_embeds = process_embeds(schema, row, headers, struct_with_fields)
+    struct_with_embeds = process_embeds(schema, row, headers, struct_with_fields, header_positions)
 
     struct_with_embeds
   end
+  
+  # Cache header positions for faster field lookups
+  defp cache_header_positions(%__MODULE__{} = schema, headers) do
+    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+    
+    Enum.map(regular_fields, fn field ->
+      header_name = field.opts[:label] || Atom.to_string(field.name)
+      {field, Enum.find_index(headers, fn h -> h == header_name end)}
+    end)
+    |> Map.new(fn {field, idx} -> {field.name, idx} end)
+  end
 
   # Process regular fields
-  defp process_fields(%__MODULE__{} = schema, row, headers, struct) do
+  defp process_fields(%__MODULE__{} = schema, row, headers, struct, header_positions) do
     # Get non-embed fields
     regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
 
@@ -236,14 +254,21 @@ defmodule Delimit.Schema do
     regular_fields
     |> Enum.with_index()
     |> Enum.reduce(struct, fn {field, idx}, acc ->
-      # Find the column index if headers are provided
+      # Find the column index - use cached positions if available
       col_idx =
-        if headers do
-          # For headers, we may have label or prefix, so need to try different possibilities
-          header_name = field.opts[:label] || Atom.to_string(field.name)
-          Enum.find_index(headers, fn h -> h == header_name end) || idx
-        else
-          idx
+        cond do
+          # Use the cached header position if available
+          not is_nil(header_positions) ->
+            Map.get(header_positions, field.name, idx)
+            
+          # Use headers lookup if no cache but headers exist
+          headers ->
+            header_name = field.opts[:label] || Atom.to_string(field.name)
+            Enum.find_index(headers, fn h -> h == header_name end) || idx
+            
+          # Default to index if no headers
+          true ->
+            idx
         end
 
       # Get the raw value from the row if column was found
@@ -259,7 +284,7 @@ defmodule Delimit.Schema do
   end
 
   # Process embedded fields
-  defp process_embeds(%__MODULE__{} = schema, row, headers, struct) do
+  defp process_embeds(%__MODULE__{} = schema, row, headers, struct, header_positions \\ nil) do
     # Get embed fields
     embed_fields = get_embeds(schema)
 
@@ -270,14 +295,41 @@ defmodule Delimit.Schema do
       embed_schema = embed_module.__delimit_schema__()
       # Get the prefix for this embed's fields
       prefix = get_embed_prefix(field)
+      
+      # Cache header positions for the embed if headers are available
+      embed_header_positions = 
+        cond do
+          header_positions != nil && Map.has_key?(header_positions, field.name) ->
+            Map.get(header_positions, field.name)
+          headers != nil ->
+            # Create prefixed header positions for the embed
+            cache_embed_header_positions(embed_schema, headers, prefix)
+          true ->
+            nil
+        end
+        
       # Build a struct for this embed
-      embed_struct = to_struct_with_prefix(embed_schema, row, headers, prefix)
+      embed_struct = to_struct_with_prefix(embed_schema, row, headers, prefix, embed_header_positions)
       # Add to accumulator
       Map.put(acc, field.name, embed_struct)
     end)
   end
+  
+  # Cache header positions for embedded schemas
+  defp cache_embed_header_positions(%__MODULE__{} = schema, headers, prefix) do
+    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+    
+    Enum.map(regular_fields, fn field ->
+      # For embeds, combine the prefix with field name or label
+      header_name = field.opts[:label] || Atom.to_string(field.name)
+      prefixed_header = prefix <> header_name
+      # Find the column index
+      {field.name, Enum.find_index(headers, fn h -> h == prefixed_header end)}
+    end)
+    |> Map.new()
+  end
 
-  defp to_struct_with_prefix(%__MODULE__{} = schema, row, headers, prefix) do
+  defp to_struct_with_prefix(%__MODULE__{} = schema, row, headers, prefix, header_positions \\ nil) do
     # Start with an empty struct
     base = struct(schema.module)
 
@@ -288,11 +340,17 @@ defmodule Delimit.Schema do
     Enum.reduce(regular_fields, base, fn field, acc ->
       # For headers, we need to find the right column
       if headers do
-        # For headers, combine the prefix with field name
-        header_name = field.opts[:label] || Atom.to_string(field.name)
-        prefixed_header = prefix <> header_name
-        # Find the column index
-        col_idx = Enum.find_index(headers, fn h -> h == prefixed_header end)
+        # Use cached header positions if available
+        col_idx = if header_positions do
+          Map.get(header_positions, field.name)
+        else
+          # For headers, combine the prefix with field name
+          header_name = field.opts[:label] || Atom.to_string(field.name)
+          prefixed_header = prefix <> header_name
+          # Find the column index
+          Enum.find_index(headers, fn h -> h == prefixed_header end)
+        end
+
         # Get the raw value from the row if column was found
         raw_value =
           if is_nil(col_idx) || col_idx >= length(row), do: nil, else: Enum.at(row, col_idx)
@@ -330,17 +388,17 @@ defmodule Delimit.Schema do
       iex> Delimit.Schema.to_row(schema, %MyApp.Person{name: "John Doe", age: 42})
       ["John Doe", "42"]
   """
-  @spec to_row(t(), struct() | map(), [String.t()] | nil) :: [String.t()]
-  def to_row(%__MODULE__{} = schema, struct_or_map, headers \\ nil) do
+  @spec to_row(t(), struct() | map(), [String.t()] | nil, map() | nil) :: [String.t()]
+  def to_row(%__MODULE__{} = schema, struct_or_map, headers \\ nil, header_positions \\ nil) do
     if headers do
-      to_row_with_headers(schema, struct_or_map, headers)
+      to_row_with_headers(schema, struct_or_map, headers, header_positions)
     else
       to_row_from_schema(schema, struct_or_map)
     end
   end
 
   # Convert using headers
-  defp to_row_with_headers(%__MODULE__{} = schema, struct_or_map, headers) do
+  defp to_row_with_headers(%__MODULE__{} = schema, struct_or_map, headers, header_positions \\ nil) do
     # Build a map of field values
     field_value_map = build_field_value_map(schema, struct_or_map)
 
