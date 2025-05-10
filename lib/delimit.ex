@@ -251,7 +251,7 @@ defmodule Delimit do
       ## Parameters
 
         * `path` - Path to the delimited file
-        * `opts` - Options for reading (headers, delimiter, etc.)
+        * `opts` - Options for reading (headers, delimiter, escape, etc.)
 
       ## Returns
 
@@ -273,7 +273,7 @@ defmodule Delimit do
       ## Parameters
 
         * `string` - String containing delimited data
-        * `opts` - Options for reading (headers, delimiter, etc.)
+        * `opts` - Options for reading (headers, delimiter, escape, etc.)
 
       ## Returns
 
@@ -296,7 +296,7 @@ defmodule Delimit do
       ## Parameters
 
         * `path` - Path to the delimited file
-        * `opts` - Options for reading (headers, delimiter, etc.)
+        * `opts` - Options for reading (headers, delimiter, escape, etc.)
 
       ## Returns
 
@@ -321,7 +321,7 @@ defmodule Delimit do
 
         * `path` - Path to the output file
         * `data` - List of structs to write
-        * `opts` - Options for writing (headers, delimiter, etc.)
+        * `opts` - Options for writing (headers, delimiter, escape, line_ending, etc.)
 
       ## Returns
 
@@ -344,7 +344,7 @@ defmodule Delimit do
       ## Parameters
 
         * `data` - List of structs to write
-        * `opts` - Options for writing (headers, delimiter, etc.)
+        * `opts` - Options for writing (headers, delimiter, escape, line_ending, etc.)
 
       ## Returns
 
@@ -368,7 +368,7 @@ defmodule Delimit do
 
         * `path` - Path to the output file
         * `data_stream` - Stream of structs to write
-        * `opts` - Options for writing (headers, delimiter, etc.)
+        * `opts` - Options for writing (headers, delimiter, escape, line_ending, etc.)
 
       ## Returns
 

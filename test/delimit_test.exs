@@ -1,6 +1,7 @@
 defmodule DelimitTest do
   use ExUnit.Case, async: true
 
+  # Not using CaptureIO anymore
   doctest Delimit
 
   # Define a test schema using the Delimit DSL
@@ -30,13 +31,16 @@ defmodule DelimitTest do
   end
 
   test "can read and write data" do
-    csv = "first_name,last_name,age\nJohn,Doe,30\nJane,Smith,28"
+    # Create properly formatted CSV string with explicitly separated fields
+    csv_string = "first_name,last_name,age\nJohn,Doe,30\nJane,Smith,28"
 
-    people = TestPerson.read_string(csv)
+    # Use direct string instead of heredoc for consistent handling
+    people = TestPerson.read_string(csv_string)
     assert length(people) > 0
 
     # Just verify we have some people with expected field types
     first_person = Enum.at(people, 0)
+    
     assert is_binary(first_person.first_name)
     assert is_binary(first_person.last_name)
     assert is_integer(first_person.age)

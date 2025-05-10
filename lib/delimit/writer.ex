@@ -14,11 +14,13 @@ defmodule Delimit.Writer do
 
   * `:headers` - Whether to include headers in the output (default: true)
   * `:delimiter` - The field delimiter character (default: comma)
+  * `:escape` - The escape character used for quotes (default: double-quote)
   * `:line_ending` - Line ending to use (default: system-dependent)
   """
   @type write_options :: [
           headers: boolean(),
           delimiter: String.t(),
+          escape: String.t(),
           line_ending: String.t()
         ]
 
@@ -208,21 +210,35 @@ defmodule Delimit.Writer do
   defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
     line_ending = Keyword.get(options, :line_ending, "\n")
+    escape = Keyword.get(options, :escape)
     
-    # Use the optimized parsers module
-    parser = Delimit.Parsers.get_parser(delimiter)
-    
-    # For custom line endings, we need to re-define the parser
-    if line_ending != "\n" do
-      # Create a unique module name for custom line endings
-      unique_module_name =
-        String.to_atom("DelimitLineEndingParser_#{System.unique_integer([:positive])}")
-      
-      # Define with custom line separator
-      NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
-      unique_module_name
+    if escape do
+      # Custom escape character specified
+      if line_ending != "\n" do
+        # Both custom escape and line ending
+        unique_module_name =
+          String.to_atom("DelimitCustomParser_#{System.unique_integer([:positive])}")
+        
+        NimbleCSV.define(unique_module_name, separator: delimiter, escape: escape, line_separator: line_ending)
+        unique_module_name
+      else
+        # Only custom escape
+        Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+      end
     else
-      parser
+      # Use the optimized parsers module with default escape
+      parser = Delimit.Parsers.get_parser(delimiter)
+      
+      # For custom line endings, re-define the parser
+      if line_ending != "\n" do
+        unique_module_name =
+          String.to_atom("DelimitLineEndingParser_#{System.unique_integer([:positive])}")
+        
+        NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
+        unique_module_name
+      else
+        parser
+      end
     end
   end
 

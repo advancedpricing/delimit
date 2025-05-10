@@ -145,6 +145,22 @@ defmodule Delimit.Field do
     nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
     if nil_on_empty, do: field.opts[:default], else: ""
   end
+  # Handle whitespace-only strings
+  def parse_value(value, field) when is_binary(value) do
+    read_fn = Keyword.get(field.opts, :read_fn)
+    if not is_nil(read_fn) do
+      read_fn.(value)
+    else
+      # Check if it's a whitespace-only string first
+      trimmed = String.trim(value)
+      if trimmed == "" do
+        nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
+        if nil_on_empty, do: field.opts[:default], else: ""
+      else
+        parse_value_with_trim(value, field)
+      end
+    end
+  end
   def parse_value(value, field) do
     read_fn = Keyword.get(field.opts, :read_fn)
     if not is_nil(read_fn) do
@@ -163,8 +179,15 @@ defmodule Delimit.Field do
   end
 
   defp parse_value_trimmed(value, field) do
-    # Handle the common case more directly
-    do_parse_value(String.trim(value), field)
+    trimmed = String.trim(value)
+    # Check if the string became empty after trimming
+    if trimmed == "" do
+      nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
+      if nil_on_empty, do: field.opts[:default], else: ""
+    else
+      # Handle the common case more directly
+      do_parse_value(trimmed, field)
+    end
   end
 
   # Type-specific parsing functions

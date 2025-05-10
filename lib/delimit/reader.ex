@@ -14,6 +14,7 @@ defmodule Delimit.Reader do
 
   * `:headers` - Whether the first row contains headers (default: true)
   * `:delimiter` - The field delimiter character (default: comma)
+  * `:escape` - The escape character used for quotes (default: double-quote)
   * `:skip_lines` - Number of lines to skip at the beginning (default: 0)
   * `:skip_while` - Function that returns true for lines to skip
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
@@ -22,6 +23,7 @@ defmodule Delimit.Reader do
   @type read_options :: [
           headers: boolean(),
           delimiter: String.t(),
+          escape: String.t(),
           skip_lines: non_neg_integer(),
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
@@ -93,12 +95,28 @@ defmodule Delimit.Reader do
   # Internal implementation with parser provided
   @spec read_string(Schema.t(), binary(), read_options(), module()) :: [struct()]
   defp read_string(%Schema{} = schema, string, options, parser) when is_binary(string) do
-    # Parse the string
-    rows = parse_with_options(string, options, parser)
-
-    # Extract headers if needed
-    {headers, data_rows} = extract_headers(rows, options)
-
+    # Check if we should extract headers explicitly
+    has_headers = Keyword.get(options, :headers, true)
+    
+    # Get header line if headers enabled
+    {headers, data_string} = if has_headers do
+      case String.split(string, "\n", parts: 2) do
+        [header_line, rest] ->
+          # For header parsing, we'll manually split because NimbleCSV parsers
+          # seem to handle the header row differently
+          headers = String.split(header_line, Keyword.get(options, :delimiter, ","))
+                   |> Enum.map(&String.trim/1)
+          {headers, rest}
+        _ ->
+          {[], string}
+      end
+    else
+      {nil, string}
+    end
+    
+    # Parse the data rows
+    data_rows = if String.trim(data_string) != "", do: parse_with_options(data_string, options, parser), else: []
+    
     # For large data sets, use batched processing
     if length(data_rows) > 1000 do
       read_string_batched(schema, data_rows, headers)
@@ -164,25 +182,51 @@ defmodule Delimit.Reader do
     # Get parser
     parser = get_parser(options)
 
-    # Create the base stream
-    stream =
-      path
-      |> File.stream!()
-      |> stream_with_options(options, parser)
+    # Check if headers are enabled
+    has_headers = Keyword.get(options, :headers, true)
 
-    # If headers are enabled, we need to handle them
-    if Keyword.get(options, :headers, true) do
-      {headers_stream, data_stream} = extract_headers_from_stream(stream)
-      
-      # Cache header positions for better performance
-      header_positions = if headers_stream, do: cache_header_positions(schema, headers_stream), else: nil
+    # Handle headers specially for streaming
+    if has_headers do
+      # Open file for reading header separately
+      case File.read(path) do
+        {:ok, content} ->
+          # Split the file content to get header line
+          case String.split(content, "\n", parts: 2) do
+            [header_line, _rest] ->
+              # For header parsing, we'll manually split because NimbleCSV parsers
+              # seem to handle the header row differently
+              headers = String.split(header_line, Keyword.get(options, :delimiter, ","))
+                       |> Enum.map(&String.trim/1)
 
-      # Map each row to a struct with optimized header lookup
-      Stream.map(data_stream, fn row ->
-        Schema.to_struct(schema, row, headers_stream, header_positions)
-      end)
+              # Now set up the stream for data rows, skipping the header line
+              stream =
+                path
+                |> File.stream!()
+                |> Stream.drop(1)
+                |> stream_with_options(options, parser)
+
+              # Cache header positions for better performance
+              header_positions = if headers, do: cache_header_positions(schema, headers), else: nil
+
+              # Map each row to a struct with optimized header lookup
+              Stream.map(stream, fn row ->
+                Schema.to_struct(schema, row, headers, header_positions)
+              end)
+            _ ->
+              # Empty file or only header line
+              Stream.map([], fn _ -> nil end)
+          end
+        _ ->
+          # File couldn't be read, return empty stream
+          Stream.map([], fn _ -> nil end)
+      end
     else
       # No headers, just map each row to a struct
+      stream =
+        path
+        |> File.stream!()
+        |> stream_with_options(options, parser)
+
       Stream.map(stream, fn row ->
         Schema.to_struct(schema, row, nil)
       end)
@@ -192,7 +236,15 @@ defmodule Delimit.Reader do
   # Get a parser with the given options
   defp get_parser(options) do
     delimiter = Keyword.get(options, :delimiter, ",")
-    Delimit.Parsers.get_parser(delimiter)
+    escape = Keyword.get(options, :escape)
+    
+    if escape do
+      # Use parser with custom escape character
+      Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+    else
+      # Use default parser (double quote as escape)
+      Delimit.Parsers.get_parser(delimiter)
+    end
   end
 
   # Parse a string with the given options
@@ -204,30 +256,35 @@ defmodule Delimit.Reader do
       else
         string
       end
-      
-    # Parse the string using NimbleCSV
-    rows = parser.parse_string(string)
+    
+    # Make sure there's content to parse  
+    if String.trim(string) == "" do
+      []
+    else
+      # Parse the string using NimbleCSV - headers are handled separately at the calling level
+      rows = parser.parse_string(string)
 
-    # Apply skipping options
-    skip_lines = Keyword.get(options, :skip_lines, 0)
-    skip_fn = Keyword.get(options, :skip_while)
+      # Apply skipping options
+      skip_lines = Keyword.get(options, :skip_lines, 0)
+      skip_fn = Keyword.get(options, :skip_while)
 
-    rows =
-      if skip_lines > 0 do
-        Enum.drop(rows, skip_lines)
+      rows =
+        if skip_lines > 0 do
+          Enum.drop(rows, skip_lines)
+        else
+          rows
+        end
+
+      # Apply skip_while if provided
+      if skip_fn do
+        delimiter = Keyword.get(options, :delimiter, ",")
+        Enum.drop_while(rows, fn row ->
+          raw_line = Enum.join(row, delimiter)
+          skip_fn.(raw_line)
+        end)
       else
         rows
       end
-
-    # Apply skip_while if provided
-    if skip_fn do
-      delimiter = Keyword.get(options, :delimiter, ",")
-      Enum.drop_while(rows, fn row ->
-        raw_line = Enum.join(row, delimiter)
-        skip_fn.(raw_line)
-      end)
-    else
-      rows
     end
   end
 
@@ -258,26 +315,5 @@ defmodule Delimit.Reader do
     end
   end
 
-  # Extract headers from rows
-  defp extract_headers(rows, options) do
-    if Keyword.get(options, :headers, true) and length(rows) > 0 do
-      [headers | data_rows] = rows
-      {headers, data_rows}
-    else
-      {nil, rows}
-    end
-  end
-
-  # Extract headers from a stream
-  defp extract_headers_from_stream(stream) do
-    # Use Stream.resource to efficiently handle the stream
-    {first_row, rest_stream} = 
-      case Enum.take(stream, 1) do
-        [headers] -> {headers, Stream.drop(stream, 1)}
-        [] -> {nil, stream}
-        _ -> {nil, stream}
-      end
-    
-    {first_row, rest_stream}
-  end
+  # These functions have been replaced by direct header handling in the read_string and stream_file functions
 end

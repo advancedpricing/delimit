@@ -6,7 +6,7 @@ defmodule Delimit.Parsers do
   creating new parser modules for each parsing operation.
   """
 
-  # Create parsers for common delimiters
+  # Create parsers for common delimiters with default escape (double quote)
   NimbleCSV.define(DelimitCommaParser, separator: ",")
   NimbleCSV.define(DelimitTabParser, separator: "\t")
   NimbleCSV.define(DelimitSemicolonParser, separator: ";")
@@ -46,5 +46,32 @@ defmodule Delimit.Parsers do
         NimbleCSV.define(unique_module_name, separator: delimiter)
         unique_module_name
     end
+  end
+  
+  @doc """
+  Gets a parser with custom escape character.
+
+  ## Parameters
+
+    * `delimiter` - The delimiter character (comma, tab, etc.)
+    * `escape` - The escape character (default: double-quote)
+
+  ## Returns
+
+    * A module that implements NimbleCSV parser functions
+
+  ## Examples
+
+      iex> Delimit.Parsers.get_parser_with_escape(",", "'")
+      # Returns a dynamically generated parser module
+  """
+  @spec get_parser_with_escape(String.t(), String.t()) :: module()
+  def get_parser_with_escape(delimiter, escape) do
+    # Always create a custom parser with the specified escape character
+    unique_module_name =
+      String.to_atom("DelimitEscapeParser_#{System.unique_integer([:positive])}")
+
+    NimbleCSV.define(unique_module_name, separator: delimiter, escape: escape)
+    unique_module_name
   end
 end
