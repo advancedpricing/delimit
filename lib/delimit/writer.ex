@@ -174,7 +174,7 @@ defmodule Delimit.Writer do
     {:ok, file} = File.open(path, [:write, :utf8, :delayed_write])
 
     # Write headers if needed
-    header_positions = 
+    _header_positions = 
       if Keyword.get(options, :headers, true) do
         headers = collect_headers(schema)
         header_row = parser.dump_to_iodata([headers])

@@ -284,7 +284,7 @@ defmodule Delimit.Schema do
   end
 
   # Process embedded fields
-  defp process_embeds(%__MODULE__{} = schema, row, headers, struct, header_positions \\ nil) do
+  defp process_embeds(%__MODULE__{} = schema, row, headers, struct, embed_pos) do
     # Get embed fields
     embed_fields = get_embeds(schema)
 
@@ -299,8 +299,8 @@ defmodule Delimit.Schema do
       # Cache header positions for the embed if headers are available
       embed_header_positions = 
         cond do
-          header_positions != nil && Map.has_key?(header_positions, field.name) ->
-            Map.get(header_positions, field.name)
+          embed_pos != nil && Map.has_key?(embed_pos, field.name) ->
+            Map.get(embed_pos, field.name)
           headers != nil ->
             # Create prefixed header positions for the embed
             cache_embed_header_positions(embed_schema, headers, prefix)
@@ -329,7 +329,7 @@ defmodule Delimit.Schema do
     |> Map.new()
   end
 
-  defp to_struct_with_prefix(%__MODULE__{} = schema, row, headers, prefix, header_positions \\ nil) do
+  defp to_struct_with_prefix(%__MODULE__{} = schema, row, headers, prefix, pos) do
     # Start with an empty struct
     base = struct(schema.module)
 
@@ -341,8 +341,8 @@ defmodule Delimit.Schema do
       # For headers, we need to find the right column
       if headers do
         # Use cached header positions if available
-        col_idx = if header_positions do
-          Map.get(header_positions, field.name)
+        col_idx = if pos do
+          Map.get(pos, field.name)
         else
           # For headers, combine the prefix with field name
           header_name = field.opts[:label] || Atom.to_string(field.name)
@@ -398,7 +398,7 @@ defmodule Delimit.Schema do
   end
 
   # Convert using headers
-  defp to_row_with_headers(%__MODULE__{} = schema, struct_or_map, headers, header_positions \\ nil) do
+  defp to_row_with_headers(%__MODULE__{} = schema, struct_or_map, headers, _pos) do
     # Build a map of field values
     field_value_map = build_field_value_map(schema, struct_or_map)
 

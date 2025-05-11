@@ -5,7 +5,9 @@ defmodule NimbleCsvTest do
     # Define parsers with different escape characters in the test
     require NimbleCSV
     NimbleCSV.define(DoubleQuoteParser, separator: ",")
-    NimbleCSV.define(SingleQuoteParser, separator: ",", escape: "'")
+    # Create unique module name to avoid conflicts
+    single_quote_parser_name = String.to_atom("SingleQuoteParser_#{System.unique_integer([:positive])}")
+    NimbleCSV.define(single_quote_parser_name, separator: ",", escape: "'")
     
     # Test parsing with double quotes as escape character
     double_quote_csv = """
@@ -13,17 +15,11 @@ defmodule NimbleCsvTest do
     1,"John, Doe","This is a description, with commas"
     """
     
-    # Print the exact CSV string
-    IO.puts("\nDouble quote CSV string:")
-    IO.puts(double_quote_csv)
-    IO.puts("CSV length: #{String.length(double_quote_csv)}")
-    IO.inspect(String.codepoints(double_quote_csv), limit: :infinity, label: "Characters")
-    
     # Clean up any potential hidden whitespace or other characters
     clean_double_quote_csv = String.trim(double_quote_csv)
     
     parsed_double_quote = DoubleQuoteParser.parse_string(clean_double_quote_csv)
-    IO.inspect(parsed_double_quote, label: "Parsed double quote CSV")
+
     assert length(parsed_double_quote) == 1
     assert Enum.at(parsed_double_quote, 0) == ["1", "John, Doe", "This is a description, with commas"]
     
@@ -33,22 +29,19 @@ defmodule NimbleCsvTest do
     1,'John, Doe','This is a description, with commas'
     """
     
-    # Print the exact CSV string
-    IO.puts("\nSingle quote CSV string:")
-    IO.puts(single_quote_csv)
-    
     # Clean up any potential hidden whitespace or other characters
     clean_single_quote_csv = String.trim(single_quote_csv)
     
-    parsed_single_quote = SingleQuoteParser.parse_string(clean_single_quote_csv)
-    IO.inspect(parsed_single_quote, label: "Parsed single quote CSV")
+    parsed_single_quote = single_quote_parser_name.parse_string(clean_single_quote_csv)
     assert length(parsed_single_quote) == 1
     assert Enum.at(parsed_single_quote, 0) == ["1", "John, Doe", "This is a description, with commas"]
   end
   
   test "round trip with custom escape character" do
+    # Define parser with quote escaping
     require NimbleCSV
-    NimbleCSV.define(CustomParser, separator: ",", escape: "'")
+    unique_module_name = String.to_atom("RoundTripParser_#{System.unique_integer([:positive])}")
+    NimbleCSV.define(unique_module_name, separator: ",", escape: "'")
     
     # Test data with values that need escaping
     original_data = [
@@ -57,20 +50,13 @@ defmodule NimbleCsvTest do
     ]
     
     # Write to CSV string
-    csv = CustomParser.dump_to_iodata(original_data) |> IO.iodata_to_binary()
-    
-    # Print the generated CSV string
-    IO.puts("\nGenerated CSV with custom escape:")
-    IO.puts(csv)
-    IO.inspect(String.codepoints(csv), limit: :infinity, label: "CSV characters")
+    csv = unique_module_name.dump_to_iodata(original_data) |> IO.iodata_to_binary()
     
     # Verify proper escaping is used
     assert String.contains?(csv, "'Test, with comma'")
     
     # Parse the CSV back to data
-    parsed_data = CustomParser.parse_string(csv)
-    IO.inspect(parsed_data, label: "Parsed data")
-    IO.inspect(original_data, label: "Original data")
+    parsed_data = unique_module_name.parse_string(csv)
     
     # Should match the data (without headers since NimbleCSV parses only data rows)
     assert parsed_data == [Enum.at(original_data, 1)]
