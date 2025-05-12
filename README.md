@@ -160,9 +160,9 @@ field :notes, :string, nil_on_empty: true
 field :status, :boolean, true_values: ["Y", "Yes"], false_values: ["N", "No"]
 
 # Custom conversion functions with explicit struct type
-field :tags, :string, 
-  read_fn: &String.split(&1, "|"), 
-  write_fn: &Enum.join(&1, "|"), 
+field :tags, :string,
+  read_fn: &String.split(&1, "|"),
+  write_fn: &Enum.join(&1, "|"),
   struct_type: {:list, :string}
 ```
 
@@ -181,18 +181,18 @@ defmodule MyApp.User do
   layout do
     field :name, :string
     # File contains comma-separated tags, but in memory it's a list
-    field :tags, :string, 
-      read_fn: &String.split(&1, ","), 
-      write_fn: &Enum.join(&1, ","), 
+    field :tags, :string,
+      read_fn: &String.split(&1, ","),
+      write_fn: &Enum.join(&1, ","),
       struct_type: {:list, :string}
-      
+
     # Map type with string keys and integer values
     field :scores, :string,
       read_fn: &parse_scores/1,
       write_fn: &serialize_scores/1,
       struct_type: {:map, :string, :integer}
   end
-  
+
   defp parse_scores(str), do: # Parse string to map
   defp serialize_scores(map), do: # Convert map to string
 end
@@ -227,7 +227,7 @@ end
 
 # This will handle headers like:
 # name,email,street,city,state,postal_code,billing_street,billing_city,billing_state,billing_postal_code
-# 
+#
 # And create structs like:
 # %MyApp.Customer{
 #   name: "John Doe",
@@ -253,6 +253,7 @@ people = MyApp.Person.read("people.csv", format: :csv)
 ```
 
 Supported formats include:
+
 - `:csv` - Comma-separated values with double-quote escaping
 - `:tsv` - Tab-separated values with double-quote escaping
 - `:psv` - Pipe-separated values with double-quote escaping
@@ -289,7 +290,7 @@ people = MyApp.Person.read("people.csv", headers: false)
 people = MyApp.Person.read("people.csv", skip_lines: 3)
 
 # Skip lines dynamically based on content (like comments)
-people = MyApp.Person.read("people.csv", 
+people = MyApp.Person.read("people.csv",
   skip_while: fn line -> String.starts_with?(line, "#") end)
 
 # Control whether to trim whitespace from fields
@@ -302,10 +303,10 @@ Options can be combined for complete customization:
 
 ```elixir
 # Multiple options can be combined
-people = MyApp.Person.read("people.csv", 
-  delimiter: ";", 
-  escape: "\"", 
-  skip_lines: 2, 
+people = MyApp.Person.read("people.csv",
+  delimiter: ";",
+  escape: "\"",
+  skip_lines: 2,
   trim_fields: true,
   headers: true
 )
