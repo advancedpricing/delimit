@@ -20,6 +20,6 @@
 - **Self-Documenting API**: Module documentation now includes generated field type specifications.
 - **Error Messages**: Better compile-time validation of field access through structs.
 
-## 0.1.0 (2025-05-03)
+## 0.1.0 (2025-05-03) -- never published
 
 - Initial release with map-based implementation

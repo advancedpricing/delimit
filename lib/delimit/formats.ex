@@ -3,8 +3,8 @@ defmodule Delimit.Formats do
   Standard format configurations for common delimited file types.
 
   This module provides predefined format configurations for common file formats
-  such as CSV (comma-separated values), TSV (tab-separated values), and
-  PSV (pipe-separated values).
+  such as CSV (comma-separated values), TSV (tab-separated values),
+  PSV (pipe-separated values), and SSV (semi-colon separated values).
 
   Using these formats simplifies configuration by setting appropriate defaults
   for delimiter, escape character, and other format-specific options.
@@ -35,6 +35,7 @@ defmodule Delimit.Formats do
       :csv -> [delimiter: ",", escape: "\"", headers: true]
       :tsv -> [delimiter: "\t", escape: "\"", headers: true]
       :psv -> [delimiter: "|", escape: "\"", headers: true]
+      :ssv -> [delimiter: ";", escape: "\"", headers: true]
       _ -> raise ArgumentError, "Unsupported format: #{inspect(format)}"
     end
   end
@@ -49,11 +50,11 @@ defmodule Delimit.Formats do
   ## Examples
 
       iex> Delimit.Formats.supported_formats()
-      [:csv, :tsv, :psv]
+      [:csv, :tsv, :psv, :ssv]
   """
   @spec supported_formats() :: [atom()]
   def supported_formats do
-    [:csv, :tsv, :psv]
+    [:csv, :tsv, :psv, :ssv]
   end
 
   @doc """

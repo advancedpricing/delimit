@@ -25,6 +25,13 @@ defmodule Delimit.FormatsTest do
       assert options[:headers] == true
     end
 
+    test "returns options for SSV format" do
+      options = Formats.get_options(:ssv)
+      assert options[:delimiter] == ";"
+      assert options[:escape] == "\""
+      assert options[:headers] == true
+    end
+
     test "raises for unsupported format" do
       assert_raise ArgumentError, "Unsupported format: :invalid", fn ->
         Formats.get_options(:invalid)
@@ -35,7 +42,7 @@ defmodule Delimit.FormatsTest do
   describe "supported_formats/0" do
     test "returns list of supported formats" do
       formats = Formats.supported_formats()
-      assert Enum.sort(formats) == Enum.sort([:csv, :tsv, :psv])
+      assert Enum.sort(formats) == Enum.sort([:csv, :tsv, :psv, :ssv])
     end
   end
 

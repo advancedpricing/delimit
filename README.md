@@ -3,7 +3,7 @@
 [![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
 [![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/jcowgar/delimit/blob/main/LICENSE)
 
-Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities.
+Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, SSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities.
 
 ## Features
 
@@ -253,6 +253,7 @@ Supported formats include:
 - `:csv` - Comma-separated values with double-quote escaping
 - `:tsv` - Tab-separated values with double-quote escaping
 - `:psv` - Pipe-separated values with double-quote escaping
+- `:ssv` - Semi-colon-separated values with double-quote escaping
 
 ### Custom Delimiters
 

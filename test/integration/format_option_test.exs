@@ -30,11 +30,13 @@ defmodule Delimit.Integration.FormatOptionTest do
     csv_string = Person.write_string(people, format: :csv)
     tsv_string = Person.write_string(people, format: :tsv)
     psv_string = Person.write_string(people, format: :psv)
+    ssv_string = Person.write_string(people, format: :ssv)
     
     # Verify correct separators in output strings
     assert csv_string =~ "Write,String,42"
     assert tsv_string =~ "Write\tString\t42"
     assert psv_string =~ "Write|String|42"
+    assert ssv_string =~ "Write;String;42"
   end
   
   test "format option with explicit struct creation", %{test_dir: test_dir} do
@@ -54,19 +56,27 @@ defmodule Delimit.Integration.FormatOptionTest do
     Maria|Lopez|55
     """
     
+    ssv_content = """
+    first_name;last_name;age
+    Carlos;Garcia;40
+    """
+    
     # Write test files
     csv_path = Path.join(test_dir, "manual.csv")
     tsv_path = Path.join(test_dir, "manual.tsv")
     psv_path = Path.join(test_dir, "manual.psv")
+    ssv_path = Path.join(test_dir, "manual.ssv")
     
     File.write!(csv_path, csv_content)
     File.write!(tsv_path, tsv_content)
     File.write!(psv_path, psv_content)
+    File.write!(ssv_path, ssv_content)
     
     # Test write_string output matches expected format patterns
     assert Person.write_string([%Person{first_name: "Test", last_name: "User", age: 25}], format: :csv) =~ "Test,User,25"
     assert Person.write_string([%Person{first_name: "Test", last_name: "User", age: 25}], format: :tsv) =~ "Test\tUser\t25"
     assert Person.write_string([%Person{first_name: "Test", last_name: "User", age: 25}], format: :psv) =~ "Test|User|25"
+    assert Person.write_string([%Person{first_name: "Test", last_name: "User", age: 25}], format: :ssv) =~ "Test;User;25"
   end
   
   test "format option for CSV writing", %{test_dir: test_dir} do
@@ -131,5 +141,28 @@ defmodule Delimit.Integration.FormatOptionTest do
     # Content shouldn't contain comma or tab delimiters
     refute String.contains?(content, ",")
     refute String.contains?(content, "\t")
+  end
+  
+  test "format option for SSV writing", %{test_dir: test_dir} do
+    # Create data directly with Person struct
+    people = [
+      %Person{first_name: "Carlos", last_name: "Garcia", age: 40},
+      %Person{first_name: "Elena", last_name: "Martinez", age: 36}
+    ]
+    
+    # Write with format option
+    ssv_path = Path.join(test_dir, "people.ssv")
+    :ok = Person.write(ssv_path, people, format: :ssv)
+    
+    # Verify file content directly
+    content = File.read!(ssv_path)
+    assert content =~ "first_name;last_name;age"
+    assert content =~ "Carlos;Garcia;40"
+    assert content =~ "Elena;Martinez;36"
+    
+    # Content shouldn't contain comma, tab or pipe delimiters
+    refute String.contains?(content, ",")
+    refute String.contains?(content, "\t")
+    refute String.contains?(content, "|")
   end
 end
