@@ -3,7 +3,7 @@
 [![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
 [![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/jcowgar/delimit/blob/main/LICENSE)
 
-Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, SSV, XLSX) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities.
+Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, SSV) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities. By defining the structure of your data, Delimit enables type-safe parsing and generation with minimal boilerplate code.
 
 ## Features
 
@@ -11,9 +11,10 @@ Delimit is a powerful yet elegant library for reading and writing delimited data
 - **Strong typing with structs**: Convert between string values and proper Elixir types in type-safe structs
 - **Full TypeSpecs**: Automatically generated type specifications for your schemas
 - **Streaming support**: Process large files efficiently with Elixir streams
-- **Customizable**: Configure delimiters, headers, type conversion, and more
+- **Customizable parsing**: Configure delimiters, headers, type conversion, and more
 - **Embedded schemas**: Nest schemas for complex data structures
 - **Custom transformations**: Add your own read/write functions for special data formats
+- **Memory efficient**: Stream large files without loading everything into memory
 
 ## Installation
 
@@ -167,6 +168,8 @@ field :tags, :string,
 
 ## Advanced Usage
 
+This section covers more advanced features and techniques for getting the most out of Delimit.
+
 ### Type Specifications
 
 Delimit automatically generates typespecs for your schemas, including support for complex field types:
@@ -255,9 +258,11 @@ Supported formats include:
 - `:psv` - Pipe-separated values with double-quote escaping
 - `:ssv` - Semi-colon-separated values with double-quote escaping
 
-### Custom Delimiters
+### Parser Configuration Options
 
-You can still use custom delimiters for your files if the standard formats don't meet your needs:
+Delimit provides several customization options for parsing and generating delimited files:
+
+#### Delimiter Options
 
 ```elixir
 # Read tab-separated values with explicit delimiter
@@ -265,31 +270,45 @@ people = MyApp.Person.read("people.tsv", delimiter: "\t")
 
 # Write pipe-separated values with explicit delimiter
 :ok = MyApp.Person.write("people.psv", people, delimiter: "|")
+
+# Use a specific escape character (default is double-quote)
+people = MyApp.Person.read("people.csv", escape: "\"")
+
+# Set line ending for generated files (default is \n)
+:ok = MyApp.Person.write("people.csv", people, line_ending: "\r\n")
 ```
 
-### Handling Headers
-
-You can control how headers are handled:
+#### Headers and Content Processing
 
 ```elixir
-# Read data without headers
+# Control whether headers are included (default is true)
 people = MyApp.Person.read("people.csv", headers: false)
-
-# Write data without headers
 :ok = MyApp.Person.write("people.csv", people, headers: false)
-```
 
-### Skipping Lines
-
-Skip comment lines or other metadata at the beginning of a file:
-
-```elixir
-# Skip a fixed number of lines
+# Skip a specific number of lines at the beginning of a file
 people = MyApp.Person.read("people.csv", skip_lines: 3)
 
-# Skip lines dynamically based on content
-people = MyApp.Person.read("people.csv",
+# Skip lines dynamically based on content (like comments)
+people = MyApp.Person.read("people.csv", 
   skip_while: fn line -> String.starts_with?(line, "#") end)
+
+# Control whether to trim whitespace from fields
+people = MyApp.Person.read("people.csv", trim_fields: true)
+```
+
+#### Combining Multiple Options
+
+Options can be combined for complete customization:
+
+```elixir
+# Multiple options can be combined
+people = MyApp.Person.read("people.csv", 
+  delimiter: ";", 
+  escape: "\"", 
+  skip_lines: 2, 
+  trim_fields: true,
+  headers: true
+)
 ```
 
 ## License
