@@ -49,7 +49,7 @@ defmodule MyApp.Person do
     field :last_name, :string
     field :age, :integer
     field :salary, :float
-    field :birthday, :date, format: "YYYY-MM-DD"
+    field :birthday, :date, format: "{YYYY}-{0M}-{0D}"
     field :active, :boolean
     field :notes, :string, nil_on_empty: true
   end
@@ -143,6 +143,8 @@ Delimit supports the following field types:
 
 Each field can have additional options:
 
+> **Note:** Date and DateTime fields use [Timex](https://hexdocs.pm/timex/Timex.Format.DateTime.Formatters.Default.html) format patterns for parsing and formatting.
+
 ```elixir
 # Default value when field is missing
 field :age, :integer, default: 0
@@ -150,8 +152,8 @@ field :age, :integer, default: 0
 # Custom header name in CSV file
 field :email, :string, label: "contact_email"
 
-# Format for date/datetime fields
-field :birthday, :date, format: "MM/DD/YYYY"
+# Format for date/datetime fields (using Timex format patterns)
+field :birthday, :date, format: "{0M}/{0D}/{YYYY}"
 
 # Convert empty strings to nil
 field :notes, :string, nil_on_empty: true
