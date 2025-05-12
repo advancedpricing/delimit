@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 (YYYY-MM-DD)
+## 0.2.0 (YYYY-MM-DD)
 
 ### Breaking Changes
 
@@ -20,6 +20,6 @@
 - **Self-Documenting API**: Module documentation now includes generated field type specifications.
 - **Error Messages**: Better compile-time validation of field access through structs.
 
-## 0.1.0 (2023-XX-XX)
+## 0.1.0 (2025-05-03)
 
 - Initial release with map-based implementation

@@ -145,8 +145,8 @@ defmodule Delimit.Reader do
   
   # Process larger datasets in batches
   defp read_string_batched(%Schema{} = schema, data_rows, headers) do
-    # Cache header positions once
-    header_positions = if headers, do: cache_header_positions(schema, headers), else: nil
+    # Cache header positions once (only if headers list is non-empty)
+    header_positions = if headers != [], do: cache_header_positions(schema, headers), else: nil
     
     # Process in batches of 1000
     data_rows
@@ -228,8 +228,8 @@ defmodule Delimit.Reader do
                 |> Stream.drop(1)
                 |> stream_with_options(options, parser)
 
-              # Cache header positions for better performance
-              header_positions = if headers, do: cache_header_positions(schema, headers), else: nil
+              # Cache header positions for better performance (only if headers list is non-empty)
+              header_positions = if headers != [], do: cache_header_positions(schema, headers), else: nil
 
               # Map each row to a struct with optimized header lookup
               Stream.map(stream, fn row ->
