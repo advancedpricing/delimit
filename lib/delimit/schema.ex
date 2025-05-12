@@ -38,6 +38,7 @@ defmodule Delimit.Schema do
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
   * `:nil_on_empty` - Convert empty strings to nil (default: true)
   * `:line_ending` - Line ending character(s) for output
+  * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type schema_options :: [
           headers: boolean(),
@@ -46,7 +47,8 @@ defmodule Delimit.Schema do
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
           nil_on_empty: boolean(),
-          line_ending: String.t()
+          line_ending: String.t(),
+          format: atom()
         ]
 
   @doc """

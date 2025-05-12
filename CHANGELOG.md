@@ -12,6 +12,7 @@
 - **`struct_type` Field Option**: Added a `struct_type` field option to specify the Elixir type to use in structs when it differs from the file format type. Especially useful with custom `read_fn`/`write_fn`.
 - **Complex Type Support**: Added support for complex types like `{:list, :string}` or `{:map, :string, :integer}` for accurate type specifications.
 - **Documentation Generation**: Schema fields now generate proper documentation in the module's `@moduledoc`.
+- **Standard Formats**: Added support for predefined formats (`:csv`, `:tsv`, `:psv`) that automatically configure appropriate delimiters and escape characters.
 
 ### Improvements
 

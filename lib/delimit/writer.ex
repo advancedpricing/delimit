@@ -16,12 +16,14 @@ defmodule Delimit.Writer do
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
   * `:line_ending` - Line ending to use (default: system-dependent)
+  * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type write_options :: [
           headers: boolean(),
           delimiter: String.t(),
           escape: String.t(),
-          line_ending: String.t()
+          line_ending: String.t(),
+          format: atom()
         ]
 
   @doc """
@@ -46,8 +48,11 @@ defmodule Delimit.Writer do
   """
   @spec write_file(Schema.t(), Path.t(), [struct()], write_options()) :: :ok
   def write_file(%Schema{} = schema, path, data, opts \\ []) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Convert data to string using the appropriate parser
     parser = get_parser(options)
@@ -75,11 +80,18 @@ defmodule Delimit.Writer do
       iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
       iex> MyApp.Person.write_string(people)
       "first_name,last_name,age\\nJohn,Doe,42\\n"
+      
+      iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+      iex> MyApp.Person.write_string(people, format: :tsv)
+      "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42\\n"
   """
   @spec write_string(Schema.t(), [struct()], write_options()) :: binary()
   def write_string(%Schema{} = schema, data, opts \\ []) when is_list(data) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Get the parser with our options
     parser = get_parser(options)
@@ -161,11 +173,18 @@ defmodule Delimit.Writer do
       iex> stream = Stream.map(1..1000, fn i -> %MyApp.Person{first_name: "User", last_name: "User", age: i} end)
       iex> MyApp.Person.stream_to_file("people.csv", stream)
       :ok
+      
+      iex> stream = Stream.map(1..1000, fn i -> %MyApp.Person{first_name: "User", last_name: "User", age: i} end)
+      iex> MyApp.Person.stream_to_file("people.tsv", stream, format: :tsv)
+      :ok
   """
   @spec stream_to_file(Schema.t(), Path.t(), Enumerable.t(), write_options()) :: :ok
   def stream_to_file(%Schema{} = schema, path, data_stream, opts \\ []) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Get the parser with our options
     parser = get_parser(options)

@@ -21,11 +21,17 @@ defmodule Delimit do
         end
       end
 
-      # Read data from a file
+      # Read data from a file (auto-detects CSV format)
       people = MyApp.Person.read("people.csv")
+      
+      # Read data with explicit format (tab-separated values)
+      people = MyApp.Person.read("people.tsv", format: :tsv)
 
       # Write data to a file
       MyApp.Person.write("new_people.csv", people)
+      
+      # Write data with explicit format (pipe-separated values)
+      MyApp.Person.write("new_people.psv", people, format: :psv)
 
       # Work with a specific record
       first_person = Enum.at(people, 0)
@@ -261,6 +267,9 @@ defmodule Delimit do
 
           iex> MyApp.Person.read("people.csv")
           [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
+      
+          iex> MyApp.Person.read("people.tsv", format: :tsv)
+          [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
       """
       @spec read(Path.t(), Keyword.t()) :: [t()]
       def read(path, opts \\ []) do
@@ -331,6 +340,10 @@ defmodule Delimit do
 
           iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
           iex> MyApp.Person.write("people.csv", people)
+          :ok
+      
+          iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
+          iex> MyApp.Person.write("people.psv", people, format: :psv)
           :ok
       """
       @spec write(Path.t(), [t()], Keyword.t()) :: :ok

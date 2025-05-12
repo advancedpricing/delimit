@@ -234,15 +234,35 @@ end
 # }
 ```
 
-### Custom Delimiters
+### Using Standard Formats
 
-You can use different delimiters for your files:
+Delimit provides built-in support for common file formats:
 
 ```elixir
-# Read tab-separated values
-people = MyApp.Person.read("people.tsv", delimiter: "\t")
+# Read tab-separated values with the format option
+people = MyApp.Person.read("people.tsv", format: :tsv)
+
+# Read comma-separated values (also the default)
+people = MyApp.Person.read("people.csv", format: :csv)
 
 # Write pipe-separated values
+:ok = MyApp.Person.write("people.psv", people, format: :psv)
+```
+
+Supported formats include:
+- `:csv` - Comma-separated values with double-quote escaping
+- `:tsv` - Tab-separated values with double-quote escaping
+- `:psv` - Pipe-separated values with double-quote escaping
+
+### Custom Delimiters
+
+You can still use custom delimiters for your files if the standard formats don't meet your needs:
+
+```elixir
+# Read tab-separated values with explicit delimiter
+people = MyApp.Person.read("people.tsv", delimiter: "\t")
+
+# Write pipe-separated values with explicit delimiter
 :ok = MyApp.Person.write("people.psv", people, delimiter: "|")
 ```
 

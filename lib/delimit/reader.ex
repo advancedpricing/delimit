@@ -19,6 +19,7 @@ defmodule Delimit.Reader do
   * `:skip_while` - Function that returns true for lines to skip
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
   * `:nil_on_empty` - Convert empty strings to nil (default: true)
+  * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type read_options :: [
           headers: boolean(),
@@ -27,7 +28,8 @@ defmodule Delimit.Reader do
           skip_lines: non_neg_integer(),
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
-          nil_on_empty: boolean()
+          nil_on_empty: boolean(),
+          format: atom()
         ]
 
   @doc """
@@ -43,15 +45,21 @@ defmodule Delimit.Reader do
 
     * List of structs with parsed data based on schema
 
-  ## Example
+  ## Examples
 
       iex> MyApp.Person.read("people.csv")
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
+
+      iex> MyApp.Person.read("people.tsv", format: :tsv)
       [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
   """
   @spec read_file(Schema.t(), Path.t(), read_options()) :: [struct()]
   def read_file(%Schema{} = schema, path, opts \\ []) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Get the parser 
     parser = get_parser(options)
@@ -74,16 +82,23 @@ defmodule Delimit.Reader do
 
     * List of structs with parsed data based on schema
 
-  ## Example
+  ## Examples
 
       iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
       iex> MyApp.Person.read_string(csv_data)
       [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+
+      iex> tsv_data = "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42"
+      iex> MyApp.Person.read_string(tsv_data, format: :tsv)
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
   """
   @spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
   def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Get parser
     parser = get_parser(options)
@@ -167,17 +182,25 @@ defmodule Delimit.Reader do
 
     * Stream of structs with parsed data based on schema
 
-  ## Example
+  ## Examples
 
       iex> MyApp.Person.stream("large_people_file.csv")
+      iex> |> Stream.take(10)
+      iex> |> Enum.to_list()
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
+
+      iex> MyApp.Person.stream("large_people_file.tsv", format: :tsv)
       iex> |> Stream.take(10)
       iex> |> Enum.to_list()
       [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
   """
   @spec stream_file(Schema.t(), Path.t(), read_options()) :: Enumerable.t()
   def stream_file(%Schema{} = schema, path, opts \\ []) do
-    # Merge options from schema and function call
-    options = Keyword.merge(schema.options, opts)
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Get parser
     parser = get_parser(options)
@@ -314,6 +337,4 @@ defmodule Delimit.Reader do
       stream
     end
   end
-
-  # These functions have been replaced by direct header handling in the read_string and stream_file functions
 end
