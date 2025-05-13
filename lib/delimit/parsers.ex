@@ -7,6 +7,7 @@ defmodule Delimit.Parsers do
   """
 
   # Create parsers for common delimiters with default escape (double quote)
+  # Don't set any skip_headers option so we handle headers manually in our code
   NimbleCSV.define(DelimitCommaParser, separator: ",")
   NimbleCSV.define(DelimitTabParser, separator: "\t")
   NimbleCSV.define(DelimitSemicolonParser, separator: ";")

@@ -67,15 +67,17 @@ defmodule Delimit.IntegrationTest do
   describe "basic functionality" do
     test "read and write string data" do
       # Create csv string with proper line endings
-      csv_data = "first_name,last_name,age,salary,hired_date,active,notes\n" <>
-                 "John,Doe,30,50000.50,2020-01-15,true,Good employee\n" <>
-                 "Jane,Smith,28,55000.75,2019-05-20,true,\n" <>
-                 "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
+      csv_data =
+        "first_name,last_name,age,salary,hired_date,active,notes\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee\n" <>
+          "Jane,Smith,28,55000.75,2019-05-20,true,\n" <>
+          "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
+          
 
       # Read the CSV data
-      people = TestPerson.read_string(csv_data)
+      people = csv_data |> TestPerson.read_string()
 
-      assert length(people) > 0
+      assert length(people) == 3
 
       # Just check basic parsing worked - verify field types
       first_person = Enum.at(people, 0)
@@ -105,18 +107,20 @@ defmodule Delimit.IntegrationTest do
 
     test "read with custom options" do
       # CSV with comments at the top
-      csv_with_comments = "# This is a comment\n" <>
-                          "# Another comment line\n" <>
-                          "first_name,last_name,age,salary,hired_date,active,notes\n" <>
-                          "John,Doe,30,50000.50,2020-01-15,true,Good employee"
+      csv_with_comments =
+        "# This is a comment\n" <>
+          "# Another comment line\n" <>
+          "first_name,last_name,age,salary,hired_date,active,notes\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee"
 
-      # With special characters at the start, parsing will produce unexpected results
-      # (This test was previously expecting an error that no longer occurs with our improved parser)
+      # Comments at the top should be skipped, but valid data should be processed
       result = TestPerson.read_string(csv_with_comments)
-      # Verify the result has invalid or empty data since the headers weren't properly recognized
+
+      # Result should contain the valid record after comments
       first_item = List.first(result)
       assert first_item != nil
-      assert first_item.first_name == nil
+      assert first_item.first_name == "John"
+      assert first_item.last_name == "Doe"
 
       # Test with skip_lines, it should work
       people = TestPerson.read_string(csv_with_comments, skip_lines: 2)
@@ -146,10 +150,11 @@ defmodule Delimit.IntegrationTest do
         end
       end
 
-      csv_data = "item,paid\n" <>
-                 "Item 1,paid\n" <>
-                 "Item 2,billed\n" <>
-                 "Item 3,pending"
+      csv_data =
+        "item,paid\n" <>
+          "Item 1,paid\n" <>
+          "Item 2,billed\n" <>
+          "Item 3,pending"
 
       items = TestCustomBoolean.read_string(csv_data)
       assert length(items) > 0
@@ -162,9 +167,10 @@ defmodule Delimit.IntegrationTest do
     end
 
     test "custom read/write functions" do
-      csv_data = "name,tags\n" <>
-                 "Product A,tag1|tag2|tag3\n" <>
-                 "Product B,red|blue"
+      csv_data =
+        "name,tags\n" <>
+          "Product A,tag1|tag2|tag3\n" <>
+          "Product B,red|blue"
 
       products = TestCustomConversionModule.read_string(csv_data)
       assert length(products) > 0
