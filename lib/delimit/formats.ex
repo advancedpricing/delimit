@@ -24,18 +24,18 @@ defmodule Delimit.Formats do
   ## Examples
 
       iex> Delimit.Formats.get_options(:csv)
-      [delimiter: ",", escape: "\"", headers: true]
+      [delimiter: ",", escape: "\""]
 
       iex> Delimit.Formats.get_options(:tsv)
-      [delimiter: "\\t", escape: "\"", headers: true]
+      [delimiter: "\\t", escape: "\""]
   """
   @spec get_options(atom()) :: Keyword.t()
   def get_options(format) do
     case format do
-      :csv -> [delimiter: ",", escape: "\"", headers: true]
-      :tsv -> [delimiter: "\t", escape: "\"", headers: true]
-      :psv -> [delimiter: "|", escape: "\"", headers: true]
-      :ssv -> [delimiter: ";", escape: "\"", headers: true]
+      :csv -> [delimiter: ",", escape: "\""]
+      :tsv -> [delimiter: "\t", escape: "\""]
+      :psv -> [delimiter: "|", escape: "\""]
+      :ssv -> [delimiter: ";", escape: "\""]
       _ -> raise ArgumentError, "Unsupported format: #{inspect(format)}"
     end
   end
@@ -75,9 +75,9 @@ defmodule Delimit.Formats do
 
   ## Examples
 
-      iex> schema_opts = [headers: false]
+      iex> schema_opts = [trim_fields: false]
       iex> Delimit.Formats.merge_options(schema_opts, :csv, [escape: "'"])
-      [headers: false, delimiter: ",", escape: "'"]
+      [trim_fields: false, delimiter: ",", escape: "'"]
   """
   @spec merge_options(Keyword.t(), atom() | nil, Keyword.t()) :: Keyword.t()
   def merge_options(schema_options, format, custom_options) do

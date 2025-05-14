@@ -8,28 +8,28 @@ defmodule Delimit.FormatsTest do
       options = Formats.get_options(:csv)
       assert options[:delimiter] == ","
       assert options[:escape] == "\""
-      assert options[:headers] == true
+      # headers option has been removed
     end
 
     test "returns options for TSV format" do
       options = Formats.get_options(:tsv)
       assert options[:delimiter] == "\t"
       assert options[:escape] == "\""
-      assert options[:headers] == true
+      # headers option has been removed
     end
 
     test "returns options for PSV format" do
       options = Formats.get_options(:psv)
       assert options[:delimiter] == "|"
       assert options[:escape] == "\""
-      assert options[:headers] == true
+      # headers option has been removed
     end
 
     test "returns options for SSV format" do
       options = Formats.get_options(:ssv)
       assert options[:delimiter] == ";"
       assert options[:escape] == "\""
-      assert options[:headers] == true
+      # headers option has been removed
     end
 
     test "raises for unsupported format" do

@@ -111,10 +111,13 @@ defmodule Delimit.SchemaTest do
       assert struct.age == 42
     end
 
-    test "converts row to struct with headers" do
+    test "converts row to struct - headers option removed" do
       schema = TestPerson.__delimit_schema__()
 
-      struct = Schema.to_struct(schema, ["42", "John Doe"], ["age", "name"])
+      # In the new implementation, we no longer support headers-based mapping
+      # Schema.to_struct now expects positional mapping only - matching field order in layout
+      # We need to provide all fields in the correct order: name, first_name, last_name, age, active
+      struct = Schema.to_struct(schema, ["John Doe", "", "", "42", ""])
       assert struct.name == "John Doe"
       assert struct.age == 42
     end

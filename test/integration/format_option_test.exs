@@ -92,7 +92,7 @@ defmodule Delimit.Integration.FormatOptionTest do
     
     # Verify file content directly
     content = File.read!(csv_path)
-    assert content =~ "first_name,last_name,age"
+    # Headers are no longer included
     assert content =~ "John,Doe,30"
     assert content =~ "Jane,Smith,28"
     
@@ -114,7 +114,7 @@ defmodule Delimit.Integration.FormatOptionTest do
     
     # Verify file content directly
     content = File.read!(tsv_path)
-    assert content =~ "first_name\tlast_name\tage"
+    # Headers are no longer included
     assert content =~ "Bob\tJones\t45"
     assert content =~ "Alice\tBrown\t38"
     
@@ -135,7 +135,7 @@ defmodule Delimit.Integration.FormatOptionTest do
     
     # Verify file content directly
     content = File.read!(semi_path)
-    assert content =~ "first_name;last_name;age"
+    # Headers are no longer included
     assert content =~ "Sam;Wilson;33"
     
     # Content shouldn't contain comma or tab delimiters
@@ -156,7 +156,7 @@ defmodule Delimit.Integration.FormatOptionTest do
     
     # Verify file content directly
     content = File.read!(ssv_path)
-    assert content =~ "first_name;last_name;age"
+    # Headers are no longer included
     assert content =~ "Carlos;Garcia;40"
     assert content =~ "Elena;Martinez;36"
     

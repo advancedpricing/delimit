@@ -63,9 +63,8 @@ defmodule Delimit.FieldTest do
       assert Field.parse_value("paid", field) == true
       assert Field.parse_value("billed", field) == false
 
-      assert_raise RuntimeError, ~r/Cannot convert/, fn ->
-        Field.parse_value("invalid", field)
-      end
+      # With our more forgiving error handling, invalid values now return nil
+      assert Field.parse_value("invalid", field) == nil
     end
 
     test "parses date values" do

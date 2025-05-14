@@ -12,19 +12,17 @@ defmodule Delimit.Writer do
   @typedoc """
   Options for writing delimited data.
 
-  * `:headers` - Whether to include headers in the output (default: true)
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
   * `:line_ending` - Line ending to use (default: system-dependent)
   * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type write_options :: [
-          headers: boolean(),
-          delimiter: String.t(),
-          escape: String.t(),
-          line_ending: String.t(),
-          format: atom()
-        ]
+           delimiter: String.t(),
+           escape: String.t(),
+           line_ending: String.t(),
+           format: atom()
+         ]
 
   @doc """
   Writes delimited data to a file.
@@ -106,14 +104,7 @@ defmodule Delimit.Writer do
     # Fast path for small datasets (batch processing)
     if length(data) < 1000 do
       # Standard process for small datasets
-      rows =
-        if Keyword.get(options, :headers, true) do
-          # Get all headers including those from embedded schemas
-          headers = collect_headers(schema)
-          [headers | prepare_data_rows(schema, data, headers)]
-        else
-          prepare_data_rows(schema, data, nil)
-        end
+      rows = prepare_data_rows(schema, data)
   
       # Generate the delimited string
       rows
@@ -126,16 +117,7 @@ defmodule Delimit.Writer do
   end
   
   # Optimized version that processes data in chunks and uses iodata more efficiently
-  defp write_string_optimized(%Schema{} = schema, data, options, parser) do
-    # Write headers if needed
-    header_iodata = 
-      if Keyword.get(options, :headers, true) do
-        headers = collect_headers(schema)
-        parser.dump_to_iodata([headers])
-      else
-        []
-      end
-      
+  defp write_string_optimized(%Schema{} = schema, data, _options, parser) do
     # Process rows in chunks to avoid excessive memory usage
     chunk_size = 1000
     
@@ -144,14 +126,13 @@ defmodule Delimit.Writer do
       data
       |> Stream.chunk_every(chunk_size)
       |> Stream.map(fn chunk -> 
-        rows = prepare_data_rows(schema, chunk, nil)
+        rows = prepare_data_rows(schema, chunk)
         parser.dump_to_iodata(rows)
       end)
       |> Enum.to_list()
     
-    # Combine header and data chunks
-    [header_iodata | chunks]
-    |> IO.iodata_to_binary()
+    # Combine chunks
+    IO.iodata_to_binary(chunks)
   end
 
   @doc """
@@ -192,19 +173,6 @@ defmodule Delimit.Writer do
     # Open file for writing
     {:ok, file} = File.open(path, [:write, :utf8, :delayed_write])
 
-    # Write headers if needed
-    _header_positions = 
-      if Keyword.get(options, :headers, true) do
-        headers = collect_headers(schema)
-        header_row = parser.dump_to_iodata([headers])
-        IO.binwrite(file, header_row)
-        
-        # Cache header positions for efficient row conversion
-        cache_header_positions(schema, headers)
-      else
-        %{}
-      end
-
     # Process in chunks to optimize memory usage and improve performance
     chunk_size = 1000
     
@@ -213,7 +181,7 @@ defmodule Delimit.Writer do
       data_stream
       |> Stream.chunk_every(chunk_size)
       |> Stream.each(fn chunk ->
-        rows = prepare_data_rows(schema, chunk, nil)
+        rows = prepare_data_rows(schema, chunk)
         rows_iodata = parser.dump_to_iodata(rows)
         IO.binwrite(file, rows_iodata)
       end)
@@ -230,29 +198,32 @@ defmodule Delimit.Writer do
     delimiter = Keyword.get(options, :delimiter, ",")
     line_ending = Keyword.get(options, :line_ending, "\n")
     escape = Keyword.get(options, :escape)
-    
+      
+    # For writing, we never want to skip headers since we handle that separately
+    skip_headers = false
+      
     if escape do
       # Custom escape character specified
       if line_ending != "\n" do
         # Both custom escape and line ending
         unique_module_name =
           String.to_atom("DelimitCustomParser_#{System.unique_integer([:positive])}")
-        
+          
         NimbleCSV.define(unique_module_name, separator: delimiter, escape: escape, line_separator: line_ending)
         unique_module_name
       else
         # Only custom escape
-        Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+        Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: skip_headers)
       end
     else
       # Use the optimized parsers module with default escape
-      parser = Delimit.Parsers.get_parser(delimiter)
-      
+      parser = Delimit.Parsers.get_parser(delimiter, skip_headers: skip_headers)
+        
       # For custom line endings, re-define the parser
       if line_ending != "\n" do
         unique_module_name =
           String.to_atom("DelimitLineEndingParser_#{System.unique_integer([:positive])}")
-        
+          
         NimbleCSV.define(unique_module_name, separator: delimiter, line_separator: line_ending)
         unique_module_name
       else
@@ -262,54 +233,9 @@ defmodule Delimit.Writer do
   end
 
   # Prepare data rows for writing
-  defp prepare_data_rows(schema, data, headers) do
-    # Fast-path for performance when headers are known
-    # Cache header positions for optimized row conversion
-    if headers do
-      header_positions = cache_header_positions(schema, headers)
-      
-      Enum.map(data, fn item ->
-        Schema.to_row(schema, item, headers, header_positions)
-      end)
-    else
-      Enum.map(data, fn item ->
-        Schema.to_row(schema, item, headers)
-      end)
-    end
-  end
-  
-  # Cache header positions for faster field lookups
-  defp cache_header_positions(schema, headers) do
-    schema.fields
-    |> Enum.filter(fn field -> field.type != :embed end)
-    |> Enum.map(fn field -> 
-      label = field.opts[:label] || Atom.to_string(field.name)
-      {field.name, Enum.find_index(headers, &(&1 == label))}
+  defp prepare_data_rows(schema, data) do
+    Enum.map(data, fn item ->
+      Schema.to_row(schema, item)
     end)
-    |> Map.new()
-  end
-
-  # Collect all headers from schema, including those from embedded schemas
-  # exposed for testing
-  @doc false
-  def collect_headers(schema) do
-    # Get regular field headers
-    regular_headers = Schema.headers(schema)
-
-    # Get headers from embedded schemas
-    embed_headers =
-      schema
-      |> Schema.get_embeds()
-      |> Enum.flat_map(fn field ->
-        embed_module = schema.embeds[field.name]
-        embed_schema = embed_module.__delimit_schema__()
-        prefix = Schema.get_embed_prefix(field)
-
-        # Get headers with the prefix applied
-        Schema.headers(embed_schema, prefix)
-      end)
-
-    # Combine regular and embedded headers
-    regular_headers ++ embed_headers
   end
 end

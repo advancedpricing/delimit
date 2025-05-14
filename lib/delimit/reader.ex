@@ -12,7 +12,6 @@ defmodule Delimit.Reader do
   @typedoc """
   Options for reading delimited data.
 
-  * `:headers` - Whether the first row contains headers (default: true)
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
   * `:skip_lines` - Number of lines to skip at the beginning (default: 0)
@@ -22,7 +21,6 @@ defmodule Delimit.Reader do
   * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type read_options :: [
-          headers: boolean(),
           delimiter: String.t(),
           escape: String.t(),
           skip_lines: non_neg_integer(),
@@ -57,7 +55,7 @@ defmodule Delimit.Reader do
   def read_file(%Schema{} = schema, path, opts \\ []) do
     # Extract format option if present
     {format, custom_opts} = Keyword.pop(opts, :format)
-    
+
     # Merge options from schema, format, and function call
     options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
@@ -65,6 +63,7 @@ defmodule Delimit.Reader do
     case File.read(path) do
       {:ok, content} ->
         read_string(schema, content, options)
+
       {:error, reason} ->
         raise "Failed to read file: #{reason}"
     end
@@ -97,7 +96,7 @@ defmodule Delimit.Reader do
   def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
     # Extract format option if present
     {format, custom_opts} = Keyword.pop(opts, :format)
-    
+
     # Merge options from schema, format, and function call
     options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
@@ -105,66 +104,56 @@ defmodule Delimit.Reader do
     if String.trim(string) == "" do
       []
     else
-      # Normalize line endings
-      normalized_string = normalize_line_endings(string)
-
-      # Split into lines
-      all_lines = String.split(normalized_string, "\n")
-
-      # Get delimiter
+      # Get key options
       delimiter = Keyword.get(options, :delimiter, ",")
-      
-      # Apply skip options and filter comment lines
-      lines_after_skip = apply_skip_options(all_lines, options)
+      escape = Keyword.get(options, :escape, "\"")
+      skip_lines = Keyword.get(options, :skip_lines, 0)
+      skip_while_fn = Keyword.get(options, :skip_while)
 
-      # Filter out comment lines
-      valid_lines = Enum.reject(lines_after_skip, fn line ->
-        trimmed = String.trim(line)
-        trimmed == "" || String.starts_with?(trimmed, "#")
-      end)
-      
-      # Handle empty result
-      if length(valid_lines) == 0 do
+      # Parse directly with NimbleCSV, which handles CSV properly
+      parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: false)
+
+      # Normalize line endings to CRLF for better compatibility with NimbleCSV
+      normalized_string =
+        string
+        # First normalize to LF
+        |> String.replace("\r\n", "\n")
+        # Then convert to CRLF
+        |> String.replace("\n", "\r\n")
+
+      # Split into lines and apply preprocessing
+      lines = String.split(normalized_string, "\r\n")
+      filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
+      # Ensure string ends with CRLF for proper NimbleCSV parsing
+      adjusted_string = Enum.join(filtered_lines, "\r\n") <> "\r\n"
+
+      # Skip empty input after preprocessing
+      if String.trim(adjusted_string) == "" do
         []
       else
-        # Check if headers are enabled
-        has_headers = Keyword.get(options, :headers, true)
-        
-        if has_headers do
-          # Extract header line
-          [header_line | data_lines] = valid_lines
-          
-          # Parse headers
-          headers = String.split(header_line, delimiter) |> Enum.map(&String.trim/1)
-          
-          # Cache header positions for better performance
-          header_positions = cache_header_positions(schema, headers)
-          
-          # Parse each data line
-          Enum.map(data_lines, fn line ->
-            if String.trim(line) == "" do
-              nil
-            else
-              # Parse values
-              values = String.split(line, delimiter)
-              
-              # Convert to struct
-              Schema.to_struct(schema, values, headers, header_positions)
-            end
-          end)
-          |> Enum.reject(&is_nil/1) # Filter out nil results
-        else
-          # No headers, all lines are data
-          Enum.map(valid_lines, fn line ->
-            if String.trim(line) == "" do
-              nil
-            else
-              values = String.split(line, delimiter)
-              Schema.to_struct(schema, values, nil)
-            end
-          end)
-          |> Enum.reject(&is_nil/1)
-        end
+        # Parse all rows
+        all_rows =
+          try do
+            parser.parse_string(adjusted_string)
+          rescue
+            _ ->
+              IO.puts(
+                "Warning: Initial parsing failed, trying with more lenient configuration"
+              )
+
+              lenient_parser =
+                Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+
+              lenient_parser.parse_string(adjusted_string)
+          end
+
+        # All rows are data - convert all rows to structs
+        # Process all rows as data
+        all_rows
+        |> Enum.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
+        |> Enum.map(fn row ->
+          Schema.to_struct(schema, row)
+        end)
       end
     end
   end
@@ -188,7 +177,7 @@ defmodule Delimit.Reader do
       iex> |> Stream.take(10)
       iex> |> Enum.to_list()
       [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
-  
+
       iex> MyApp.Person.stream("large_people_file.tsv", format: :tsv)
       iex> |> Stream.take(10)
       iex> |> Enum.to_list()
@@ -198,132 +187,107 @@ defmodule Delimit.Reader do
   def stream_file(%Schema{} = schema, path, opts \\ []) do
     # Extract format option if present
     {format, custom_opts} = Keyword.pop(opts, :format)
-    
+
     # Merge options from schema, format, and function call
     options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
     # Check if file exists
-    unless File.exists?(path) do
+    if !File.exists?(path) do
       raise "File does not exist: #{path}"
     end
 
     # Get key options
-    has_headers = Keyword.get(options, :headers, true)
     delimiter = Keyword.get(options, :delimiter, ",")
+    escape = Keyword.get(options, :escape, "\"")
     skip_lines = Keyword.get(options, :skip_lines, 0)
+    skip_while_fn = Keyword.get(options, :skip_while)
 
-    if has_headers do
-      # Need to read the file first to get headers
-      case File.read(path) do
-        {:ok, content} ->
-          # Normalize line endings
-          content = normalize_line_endings(content)
-          
-          # Split into lines
-          all_lines = String.split(content, "\n")
-          
-          # Apply skip options
-          lines_after_skip = apply_skip_options(all_lines, options)
-          
-          # Filter out comment lines
-          valid_lines = Enum.reject(lines_after_skip, fn line ->
-            trimmed = String.trim(line)
-            trimmed == "" || String.starts_with?(trimmed, "#")
-          end)
-          
-          # Check if we have any valid lines
-          if length(valid_lines) == 0 do
-            Stream.map([], & &1)
-          else
-            # Extract headers from first line
-            [header_line | _] = valid_lines
-            headers = String.split(header_line, delimiter) |> Enum.map(&String.trim/1)
-            
-            # Cache header positions
-            header_positions = cache_header_positions(schema, headers)
-            
-            # Calculate total lines to skip
-            total_skip = skip_lines + (if has_headers, do: 1, else: 0)
-            
-            # Stream from file
-            path
-            |> File.stream!()
-            |> Stream.map(&normalize_line_endings/1)
-            |> Stream.filter(fn line -> 
-              trimmed = String.trim(line)
-              trimmed != "" && !String.starts_with?(trimmed, "#")
-            end)
-            |> Stream.drop(total_skip)
-            |> Stream.map(fn line ->
-              values = String.split(line, delimiter)
-              Schema.to_struct(schema, values, headers, header_positions)
-            end)
-          end
-        
-        {:error, reason} ->
-          raise "Failed to read file: #{reason}"
-      end
-    else
-      # No headers - simpler processing
+    # Simple case - use NimbleCSV directly with no preprocessing
+    if skip_lines == 0 && skip_while_fn == nil do
+      # Make sure to use a parser that doesn't skip any rows
+      parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+
       path
       |> File.stream!()
-      |> Stream.map(&normalize_line_endings/1)
-      |> Stream.filter(fn line -> 
-        trimmed = String.trim(line)
-        trimmed != "" && !String.starts_with?(trimmed, "#")
+      |> parser.parse_stream()
+      |> Stream.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
+      |> Stream.map(fn row ->
+        Schema.to_struct(schema, row)
       end)
-      |> Stream.drop(skip_lines)
-      |> Stream.map(fn line ->
-        values = String.split(line, delimiter)
-        Schema.to_struct(schema, values, nil)
-      end)
-    end
-  end
-
-  # Normalize line endings to \n
-  defp normalize_line_endings(string) do
-    if String.contains?(string, "\r\n") do
-      String.replace(string, "\r\n", "\n")
     else
-      string
+      # For skip options, we need preprocessing
+      stream_with_preprocessing(schema, path, options)
     end
   end
 
-  # Apply skip options to lines
-  defp apply_skip_options(lines, options) do
+  # Normalize line endings to \r\n for better NimbleCSV compatibility
+  defp normalize_line_endings(string) do
+    string
+    # First normalize to LF
+    |> String.replace("\r\n", "\n")
+    # Then convert to CRLF
+    |> String.replace("\n", "\r\n")
+  end
+
+  # Process lines: handle skips, empty lines, comments
+  defp preprocess_lines(lines, skip_lines, skip_while_fn) do
+    # Apply skip_while function if provided
+    lines = if skip_while_fn, do: Enum.drop_while(lines, skip_while_fn), else: lines
+
     # Apply skip_lines option
-    lines_after_skip_lines = 
-      case Keyword.get(options, :skip_lines, 0) do
-        0 -> lines
-        n -> Enum.drop(lines, n)
-      end
-    
-    # Apply skip_while option
-    case Keyword.get(options, :skip_while) do
-      nil -> lines_after_skip_lines
-      skip_fn -> Enum.drop_while(lines_after_skip_lines, skip_fn)
+    lines = if skip_lines > 0, do: Enum.drop(lines, skip_lines), else: lines
+
+    lines
+  end
+
+  # Handle streaming with preprocessing for skipping lines
+  defp stream_with_preprocessing(schema, path, options) do
+    # Get key options
+    delimiter = Keyword.get(options, :delimiter, ",")
+    escape = Keyword.get(options, :escape, "\"")
+    skip_lines = Keyword.get(options, :skip_lines, 0)
+    skip_while_fn = Keyword.get(options, :skip_while)
+
+    # Create parser - no skip_headers
+    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+
+    # First, read and process the file
+    {:ok, content} = File.read(path)
+    # Normalize to CRLF for better NimbleCSV compatibility
+    content = normalize_line_endings(content)
+
+    # Split into lines and apply preprocessing (using CRLF for better NimbleCSV compatibility)
+    lines = String.split(content, "\r\n")
+    filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
+
+    # Ensure string ends with CRLF for proper NimbleCSV parsing
+    adjusted_content = Enum.join(filtered_lines, "\r\n") <> "\r\n"
+
+    # Parse all rows
+    all_rows = parser.parse_string(adjusted_content)
+
+    if all_rows == [] do
+      # No valid rows after parsing
+      Stream.map([], & &1)
+    else
+      # Create a stream directly from the rows - ensure we get ALL rows
+      data_stream =
+        Stream.map(all_rows, fn row ->
+          # Skip empty rows
+          if Enum.all?(row, &(&1 == "")) do
+            nil
+          else
+            Schema.to_struct(schema, row)
+          end
+        end)
+
+      # Filter out nil values (from empty rows)
+      Stream.reject(data_stream, &is_nil/1)
     end
   end
 
-  # Cache header positions for better field lookup performance
-  defp cache_header_positions(%Schema{} = schema, headers) do
-    # Get non-embed fields
-    fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
-    
-    # Map each field to its position in the headers
-    Enum.reduce(fields, %{}, fn field, acc ->
-      # Get header name from label option or field name
-      header_name = field.opts[:label] || Atom.to_string(field.name)
-      
-      # Find position in the headers
-      position = Enum.find_index(headers, fn h -> h == header_name end)
-      
-      # Only add to map if position was found
-      if position != nil do
-        Map.put(acc, field.name, position)
-      else
-        acc
-      end
-    end)
-  end
+  # This function was removed as it's no longer needed
+  # We now use preprocess_lines instead
+
+  # This function was removed as we no longer use header-based mapping
 end
