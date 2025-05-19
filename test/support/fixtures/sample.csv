@@ -1,0 +1,4 @@
+first_name,last_name,age,salary,hired_date,active,notes
+John,Doe,30,50000.50,2020-01-15,true,Good employee
+Jane,Smith,28,55000.75,2019-05-20,true,
+Bob,Johnson,45,75000.00,2015-11-10,false,On probation

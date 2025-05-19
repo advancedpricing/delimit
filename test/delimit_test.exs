@@ -1,55 +1,58 @@
 defmodule DelimitTest do
   use ExUnit.Case, async: true
+  alias Delimit.TestSupport.Schemas.SimpleSchema
 
-  # Not using CaptureIO anymore
   doctest Delimit
 
-  # Define a test schema using the Delimit DSL
-  defmodule TestPerson do
-    @moduledoc false
-    use Delimit
+  describe "core module functionality" do
+    test "creates schema correctly using DSL" do
+      schema = SimpleSchema.__delimit_schema__()
 
-    layout do
-      field(:first_name, :string)
-      field(:last_name, :string)
-      field(:age, :integer, default: 0)
+      assert schema.module == SimpleSchema
+      assert length(schema.fields) == 3
+
+      field_names = Enum.map(schema.fields, fn field -> field.name end)
+      assert field_names == [:name, :age, :active]
+
+      age_field = Enum.find(schema.fields, fn field -> field.name == :age end)
+      assert age_field.type == :integer
+      assert age_field.opts == []
     end
-  end
+    
+    test "generates typespec and struct correctly" do
+      # Verify the struct exists and contains expected fields
+      person = %SimpleSchema{name: "John", age: 30, active: true}
+      assert person.__struct__ == SimpleSchema
+      assert person.name == "John"
+      assert person.age == 30
+      assert person.active == true
+    end
 
-  test "creates schema correctly using DSL" do
-    schema = TestPerson.__delimit_schema__()
+    test "can read and write data" do
+      # Create properly formatted CSV string
+      csv_string = "John,30,true\nJane,28,false"
 
-    assert schema.module == TestPerson
-    assert length(schema.fields) == 3
+      # Read the data using the schema
+      people = SimpleSchema.read_string(csv_string)
+      assert length(people) == 2
 
-    field_names = Enum.map(schema.fields, fn field -> field.name end)
-    assert field_names == [:first_name, :last_name, :age]
+      # Verify field types are correctly converted
+      first_person = Enum.at(people, 0)
+      assert is_binary(first_person.name)
+      assert is_integer(first_person.age)
+      assert is_boolean(first_person.active)
 
-    age_field = Enum.find(schema.fields, fn field -> field.name == :age end)
-    assert age_field.type == :integer
-    assert age_field.opts == [default: 0]
-  end
+      # Write the data back to a string
+      output = SimpleSchema.write_string(people)
+      assert is_binary(output)
+      assert String.contains?(output, "Jane,28,false")
+    end
 
-  test "can read and write data" do
-    # Create properly formatted CSV string with explicitly separated fields
-    # No headers, just data rows
-    csv_string = "John,Doe,30\nJane,Smith,28"
-
-    # Use direct string instead of heredoc for consistent handling
-    people = TestPerson.read_string(csv_string)
-    assert length(people) == 2
-
-    # Just verify we have some people with expected field types
-    first_person = Enum.at(people, 0)
-
-    assert is_binary(first_person.first_name)
-    assert is_binary(first_person.last_name)
-    assert is_integer(first_person.age)
-
-    # Write the data back to a string
-    output = TestPerson.write_string(people)
-    assert is_binary(output)
-    # No headers in the output - only contains Jane's data since we get only 1 row
-    assert String.contains?(output, "Jane,Smith,28")
+    test "provides access to schema definition" do
+      schema = SimpleSchema.__delimit_schema__()
+      assert is_map(schema)
+      assert schema.module == SimpleSchema
+      assert is_list(schema.fields)
+    end
   end
 end
