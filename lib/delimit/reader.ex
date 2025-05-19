@@ -137,7 +137,8 @@ defmodule Delimit.Reader do
     all_rows
     |> Enum.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
     |> Enum.map(fn row ->
-      Schema.to_struct(schema, row)
+      # Pass the trim_fields option to the struct creation
+      Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
     end)
   end
 
@@ -196,7 +197,8 @@ defmodule Delimit.Reader do
     |> parser.parse_stream()
     |> Stream.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
     |> Stream.map(fn row ->
-      Schema.to_struct(schema, row)
+      # Pass the trim_fields option to the struct creation
+      Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
     end)
   end
 

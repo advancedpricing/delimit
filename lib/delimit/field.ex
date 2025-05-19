@@ -171,7 +171,7 @@ defmodule Delimit.Field do
   end
 
   defp parse_value_with_trim(value, field) do
-    if Keyword.get(field.opts, :trim) == false do
+    if Keyword.get(field.opts, :trim_fields) == false do
       do_parse_value(value, field)
     else
       parse_value_trimmed(value, field)

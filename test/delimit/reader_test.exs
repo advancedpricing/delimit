@@ -193,7 +193,7 @@ defmodule Delimit.ReaderTest do
       """
 
       # Test without trim
-      items = TrimSchema.read_string(csv_string)
+      items = TrimSchema.read_string(csv_string, trim_fields: false)
       assert length(items) == 2
 
       item = Enum.at(items, 0)
@@ -203,7 +203,7 @@ defmodule Delimit.ReaderTest do
       assert item.description == "  Description with spaces  "
 
       # Test with trim
-      items = TrimSchema.read_string(csv_string, trim_fields: true)
+      items = TrimSchema.read_string(csv_string)
       assert length(items) == 2
 
       item = Enum.at(items, 0)

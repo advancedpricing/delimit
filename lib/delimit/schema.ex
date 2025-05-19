@@ -213,15 +213,15 @@ defmodule Delimit.Schema do
       %MyApp.Person{name: "John Doe", age: 42}
   """
   @spec to_struct(t(), [String.t()]) :: struct()
-  def to_struct(%__MODULE__{} = schema, row) do
+  def to_struct(%__MODULE__{} = schema, row, opts \\ []) do
     # Start with an empty struct of the module type
     struct = struct(schema.module)
 
     # Process regular fields with position-based mapping
-    struct_with_fields = process_fields(schema, row, nil, struct, nil)
+    struct_with_fields = process_fields(schema, row, nil, struct, nil, opts)
 
     # Process embedded fields
-    struct_with_embeds = process_embeds(schema, row, nil, struct_with_fields, nil)
+    struct_with_embeds = process_embeds(schema, row, nil, struct_with_fields, nil, opts)
 
     struct_with_embeds
   end
@@ -229,7 +229,7 @@ defmodule Delimit.Schema do
   # This function was removed as we no longer use header-based mapping
 
   # Process regular fields
-  defp process_fields(%__MODULE__{} = schema, row, _headers, struct, _header_positions) do
+  defp process_fields(%__MODULE__{} = schema, row, _headers, struct, _header_positions, opts \\ []) do
     # Get non-embed fields
     regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
 
@@ -247,8 +247,11 @@ defmodule Delimit.Schema do
       # Handle empty fields appropriately
       raw_value = if raw_value == "", do: nil, else: raw_value
 
+      # Pass trim_fields option to the field
+      field_with_opts = %{field | opts: Keyword.merge(field.opts, Keyword.take(opts, [:trim_fields]))}
+
       # Parse the value according to field type if not nil
-      parsed_value = if is_nil(raw_value), do: nil, else: Field.parse_value(raw_value, field)
+      parsed_value = if is_nil(raw_value), do: nil, else: Field.parse_value(raw_value, field_with_opts)
 
       # Add to accumulator
       Map.put(acc, field.name, parsed_value)
@@ -256,7 +259,7 @@ defmodule Delimit.Schema do
   end
 
   # Process embedded fields
-  defp process_embeds(%__MODULE__{} = schema, row, _headers, struct, _embed_pos) do
+  defp process_embeds(%__MODULE__{} = schema, row, _headers, struct, _embed_pos, opts \\ []) do
     # Get embed fields
     embed_fields = get_embeds(schema)
 
@@ -268,8 +271,8 @@ defmodule Delimit.Schema do
       # Get the prefix for this embed's fields
       prefix = get_embed_prefix(field)
         
-      # Build a struct for this embed
-      embed_struct = to_struct_with_prefix(embed_schema, row, nil, prefix, nil)
+      # Build a struct for this embed, passing along options
+      embed_struct = to_struct_with_prefix(embed_schema, row, nil, prefix, nil, opts)
       # Add to accumulator
       Map.put(acc, field.name, embed_struct)
     end)
@@ -277,7 +280,7 @@ defmodule Delimit.Schema do
   
   # This function was removed as we no longer use header-based mapping
 
-  defp to_struct_with_prefix(%__MODULE__{} = schema, _row, _headers, _prefix, _pos) do
+  defp to_struct_with_prefix(%__MODULE__{} = schema, _row, _headers, _prefix, _pos, _opts \\ []) do
     # Start with an empty struct
     struct = struct(schema.module)
     
