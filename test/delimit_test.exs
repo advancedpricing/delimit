@@ -37,11 +37,11 @@ defmodule DelimitTest do
 
     # Use direct string instead of heredoc for consistent handling
     people = TestPerson.read_string(csv_string)
-    assert length(people) == 1
+    assert length(people) == 2
 
     # Just verify we have some people with expected field types
     first_person = Enum.at(people, 0)
-    
+
     assert is_binary(first_person.first_name)
     assert is_binary(first_person.last_name)
     assert is_integer(first_person.age)

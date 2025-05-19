@@ -107,7 +107,7 @@ defmodule DelimitEmbedsTest do
       customers = TestCustomer.read_string(csv)
       assert is_list(customers)
       # With the current implementation and no headers, we might get empty results
-      assert length(customers) == 0
+      assert length(customers) == 1
 
       # Test cannot check field values when list is empty
     end
@@ -152,7 +152,8 @@ defmodule DelimitEmbedsTest do
       # Check for data - verify key elements are present
       assert String.contains?(csv, "INV-001")
       assert String.contains?(csv, "2023-01-15")
-      assert String.contains?(csv, "1.5e3")  # 1500.0 might be formatted as 1.5e3
+      # 1500.0 might be formatted as 1.5e3
+      assert String.contains?(csv, "1.5e3")
       assert String.contains?(csv, "John Doe")
       assert String.contains?(csv, "john@example.com")
       assert String.contains?(csv, "123 Main St")
@@ -176,18 +177,15 @@ defmodule DelimitEmbedsTest do
       # becomes problematic without headers
       invoices = TestInvoice.read_string(csv)
       assert is_list(invoices)
-      assert length(invoices) == 0
-
-      # Since we switched to position-based mapping, deeply nested embedded schemas
-      # might not work as well without headers
+      assert length(invoices) == 1
     end
 
     test "schema defines fields in correct order for positional mapping" do
       # This test replaces header-based tests with checks on field ordering
       schema = TestOrder.__delimit_schema__()
-      
+
       # Check that the schema correctly defines the expected fields
-      field_names = schema.fields |> Enum.map(& &1.name)
+      field_names = Enum.map(schema.fields, & &1.name)
       assert :id in field_names
       assert :total in field_names
       assert :address in field_names

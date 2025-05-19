@@ -14,6 +14,7 @@ defmodule Delimit.Reader do
 
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
+  * `:header` - Does the file contain a header? (default: false)
   * `:skip_lines` - Number of lines to skip at the beginning (default: 0)
   * `:skip_while` - Function that returns true for lines to skip
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
@@ -23,6 +24,7 @@ defmodule Delimit.Reader do
   @type read_options :: [
           delimiter: String.t(),
           escape: String.t(),
+          header: boolean(),
           skip_lines: non_neg_integer(),
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
@@ -103,11 +105,12 @@ defmodule Delimit.Reader do
     # Get key options
     delimiter = Keyword.get(options, :delimiter, ",")
     escape = Keyword.get(options, :escape, "\"")
-    skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_while_fn = Keyword.get(options, :skip_while)
+    skip_lines = Keyword.get(options, :skip_lines, 0)
+    skip_lines = if Keyword.get(options, :headers, false), do: skip_lines + 1, else: skip_lines
 
     # Parse directly with NimbleCSV, which handles CSV properly
-    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: false)
+    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
     # Split into lines and apply preprocessing
     lines = String.split(string, "\r\n")
@@ -118,7 +121,7 @@ defmodule Delimit.Reader do
     # Parse all rows
     all_rows =
       try do
-        parser.parse_string(adjusted_string)
+        parser.parse_string(adjusted_string, skip_headers: false)
       rescue
         _ ->
           IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
@@ -126,7 +129,7 @@ defmodule Delimit.Reader do
           lenient_parser =
             Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
-          lenient_parser.parse_string(adjusted_string)
+          lenient_parser.parse_string(adjusted_string, skip_headers: false)
       end
 
     # All rows are data - convert all rows to structs

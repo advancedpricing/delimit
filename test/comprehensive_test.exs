@@ -44,6 +44,32 @@ defmodule Delimit.ComprehensiveTest do
   end
 
   describe "headers management" do
+    test "reads CSV with headers" do
+      # CSV with columns in different order (important: ID needs to be parseable as integer)
+      csv_data =
+        "id,name,value,active,created_at,tags\r\n" <>
+          "1,John Doe,42.5,true,2023-01-15,tag1|tag2\r\n" <>
+          "2,Jane Smith,55.3,false,2022-05-10,"
+
+      items = SimpleSchema.read_string(csv_data, headers: true)
+
+      # Verify parsing works correctly
+      assert is_list(items)
+      assert length(items) == 2
+
+      first = Enum.at(items, 0)
+      assert is_map(first)
+      assert first.id == 1
+      assert first.name == "John Doe"
+      assert first.value == 42.5
+
+      second = Enum.at(items, 1)
+      assert is_map(second)
+      assert second.id == 2
+      assert second.name == "Jane Smith"
+      assert second.value == 55.3
+    end
+
     test "reads CSV without headers" do
       # CSV data without headers - ensure consistent line endings
       csv_data =
@@ -54,15 +80,22 @@ defmodule Delimit.ComprehensiveTest do
       items = SimpleSchema.read_string(csv_data)
 
       assert is_list(items)
-      assert length(items) == 1
+      assert length(items) == 2
 
       # Verify we can access valid data
-      first = Enum.at(items, 0)
-      assert is_map(first)
-      assert first.id == 2
-      assert first.name == "Jane Smith"
-      assert first.value == 55.3
-      assert first.active == false
+      value = Enum.at(items, 0)
+      assert is_map(value)
+      assert value.id == 1
+      assert value.name == "John Doe"
+      assert value.value == 42.5
+      assert value.active == true
+
+      value = Enum.at(items, 1)
+      assert is_map(value)
+      assert value.id == 2
+      assert value.name == "Jane Smith"
+      assert value.value == 55.3
+      assert value.active == false
     end
 
     test "skip using skip_fn then skip_lines" do
@@ -82,15 +115,22 @@ defmodule Delimit.ComprehensiveTest do
         )
 
       assert is_list(items)
-      assert length(items) == 1
+      assert length(items) == 2
 
       # Verify we can access valid data
-      first = Enum.at(items, 0)
-      assert is_map(first)
-      assert first.id == 2
-      assert first.name == "Jane Smith"
-      assert first.value == 55.3
-      assert first.active == false
+      value = Enum.at(items, 0)
+      assert is_map(value)
+      assert value.id == 1
+      assert value.name == "John Doe"
+      assert value.value == 42.5
+      assert value.active == true
+
+      value = Enum.at(items, 1)
+      assert is_map(value)
+      assert value.id == 2
+      assert value.name == "Jane Smith"
+      assert value.value == 55.3
+      assert value.active == false
     end
 
     test "writes CSV without headers" do
@@ -123,50 +163,18 @@ defmodule Delimit.ComprehensiveTest do
       assert String.contains?(csv, "1,Test 1,10.5,true,2023-01-01,test")
       assert String.contains?(csv, "2,Test 2,20.5,false,2023-01-02,")
     end
-
-    test "reads fields in different order than schema" do
-      # CSV with columns in different order (important: ID needs to be parseable as integer)
-      csv_data =
-        String.replace(
-          """
-          id,name,value,active,created_at,tags
-          1,John Doe,42.5,true,2023-01-15,tag1|tag2
-          2,Jane Smith,55.3,false,2022-05-10,
-          """,
-          "\r\n",
-          "\n"
-        )
-
-      items = SimpleSchema.read_string(csv_data)
-
-      # Verify parsing works correctly
-      assert is_list(items)
-      assert length(items) == 2
-
-      first = Enum.at(items, 0)
-      assert is_map(first)
-      assert first.id == 1
-      assert first.name == "John Doe"
-      assert first.value == 42.5
-
-      second = Enum.at(items, 1)
-      assert is_map(second)
-      assert second.id == 2
-      assert second.name == "Jane Smith"
-      assert second.value == 55.3
-    end
   end
 
   describe "empty and malformed data" do
     test "handles empty CSV file" do
       # Empty CSV with only headers
-      csv_with_headers = String.replace("id,name,value,active,created_at,tags\n", "\r\n", "\n")
+      csv_with_headers = "id,name,value,active,created_at,tags\r\n"
 
       # Empty CSV with no content at all
       empty_csv = ""
 
       # Parse both
-      items_with_headers = SimpleSchema.read_string(csv_with_headers)
+      items_with_headers = SimpleSchema.read_string(csv_with_headers, headers: true)
       items_empty = SimpleSchema.read_string(empty_csv)
 
       # Should return empty lists, not crash
@@ -174,20 +182,14 @@ defmodule Delimit.ComprehensiveTest do
       assert items_empty == []
     end
 
-    test "handles malformed data gracefully" do
+    test "CSV with missing columns" do
       # CSV with missing columns
       csv_missing =
-        String.replace(
-          """
-          id,name,value,active
-          1,John,42.5,true
-          """,
-          "\r\n",
-          "\n"
-        )
+        "id,name,value,active\r\n" <>
+          "1,John,42.5,true"
 
       # This should not crash but fill in nils for missing columns
-      items = SimpleSchema.read_string(csv_missing)
+      items = SimpleSchema.read_string(csv_missing, headers: true)
       assert is_list(items)
       assert length(items) == 1
 
@@ -199,20 +201,16 @@ defmodule Delimit.ComprehensiveTest do
       assert first.active == true
       assert first.created_at == nil
       assert first.tags == nil
+    end
 
+    test "CSV with extra columns" do
       # CSV with extra columns
       csv_extra =
-        String.replace(
-          """
-          id,name,value,active,created_at,tags,extra1,extra2
-          1,John,42.5,true,2023-01-15,tags,something,else
-          """,
-          "\r\n",
-          "\n"
-        )
+        "id,name,value,active,created_at,tags,extra1,extra2\r\n" <>
+          "1,John,42.5,true,2023-01-15,tags,something,else"
 
       # This should just ignore the extra columns
-      items = SimpleSchema.read_string(csv_extra)
+      items = SimpleSchema.read_string(csv_extra, headers: true)
       assert is_list(items)
       assert length(items) == 1
 
@@ -231,7 +229,7 @@ defmodule Delimit.ComprehensiveTest do
         "id,name,value,active,created_at,description\r\n" <>
           "1,,,,"
 
-      items = SchemaWithDefaults.read_string(csv_data)
+      items = SchemaWithDefaults.read_string(csv_data, headers: true)
 
       # Verify parsing works and default values are properly applied
       assert is_list(items)
@@ -414,7 +412,7 @@ defmodule Delimit.ComprehensiveTest do
       # - Skip the 2 comment lines with skip_while
       # - Skip the garbage line + first data line with skip_lines: 1
       # - Keep only the last 2 data lines
-      
+
       # Stream with skip options - first skip lines starting with #, then skip 1 more line
       result =
         test_file
@@ -423,7 +421,6 @@ defmodule Delimit.ComprehensiveTest do
           skip_lines: 1
         )
         |> Enum.to_list()
-
 
       # Should have 2 items (skipped the 2 comment lines and 1 garbage line + 1 data line)
       assert length(result) == 2
@@ -447,15 +444,14 @@ defmodule Delimit.ComprehensiveTest do
   describe "escape character options" do
     test "reading with custom escape character" do
       # CSV with single quote as escape character
-      csv_data = """
-      id,name,description
-      1,'John, Doe','This is a description with commas'
-      2,'Jane''s name','Another description'
-      """
+      csv_data =
+        "id,name,description\r\n" <>
+          "1,'John, Doe','This is a description with commas'\r\n" <>
+          "2,'Jane''s name','Another description'"
 
       # When processing single-quote escaped data, we get multiple rows
       # Headers option is ignored in the new implementation
-      items = SimpleSchema.read_string(csv_data, escape: "'")
+      items = SimpleSchema.read_string(csv_data, escape: "'", headers: true)
 
       # Current implementation treats all rows as data
       assert length(items) == 2
@@ -506,14 +502,12 @@ defmodule Delimit.ComprehensiveTest do
     # This is a test specifically to ensure that we don't skip
     # both the header row AND the first data row
     csv_data =
-      """
-      id,name,value,active,created_at,tags
-      1,First Row,42.5,true,2023-01-15,first_row_tag
-      2,Second Row,55.3,false,2022-05-10,second_row_tag
-      """
+      "id,name,value,active,created_at,tags\r\n" <>
+        "1,First Row,42.5,true,2023-01-15,first_row_tag\r\n" <>
+        "2,Second Row,55.3,false,2022-05-10,second_row_tag"
 
     # Parse the CSV - headers option is ignored in new implementation
-    items = SimpleSchema.read_string(csv_data)
+    items = SimpleSchema.read_string(csv_data, headers: true)
 
     # With the new implementation all rows are treated as data
     assert length(items) == 2
@@ -549,7 +543,7 @@ defmodule Delimit.ComprehensiveTest do
     csv = SimpleSchema.write_string(data)
 
     # Verify data was written - the line should contain values
-    [data_line | _rest] = String.split(csv, "\n")
+    [data_line | _rest] = String.split(csv, "\r\n")
     assert String.contains?(data_line, "1")
     assert String.contains?(data_line, "Test Person")
     assert String.contains?(data_line, "42.5")
@@ -559,12 +553,7 @@ defmodule Delimit.ComprehensiveTest do
     # Now read the data back
     read_data = SimpleSchema.read_string(csv)
 
-    # With current implementation with no headers, we might get empty results
-    # This is because the data is being treated as headers, and there's no data left
-    assert length(read_data) == 0
-
-    # With empty results, we can't verify specific items
-    # The previous asserts would fail, so we've removed them
+    assert length(read_data) == 1
   end
 
   # Tests for escape character options focus on basic functionality

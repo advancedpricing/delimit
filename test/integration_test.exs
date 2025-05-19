@@ -74,35 +74,36 @@ defmodule Delimit.IntegrationTest do
           "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
 
       # Read the CSV data
-      people = TestPerson.read_string(csv_data)
+      people = TestPerson.read_string(csv_data, headers: true)
 
-      # With the CSV data including 3 rows, we'll get all 3 (since headers are treated as data now)
+      # With the CSV data including 3 rows, we'll get all 3
       assert length(people) == 3
 
       # Verify basic parsing worked correctly - check field types and values
-      # The first row is now the header row itself, treated as data
-      first_person = Enum.at(people, 0)
-      assert is_binary(first_person.first_name)
-      assert is_binary(first_person.last_name)
-      # The header row will have type conversion errors, but still produce a struct
+
+      person = Enum.at(people, 0)
+      assert person.first_name == "John"
+      assert person.last_name == "Doe"
+      assert person.age == 30
 
       # Verify fields for the second record (Jane Smith) - may change based on string parsing
-      second_person = Enum.at(people, 1)
-      assert second_person.first_name == "Jane"
-      assert second_person.last_name == "Smith"
-      assert second_person.age == 28
+      person = Enum.at(people, 1)
+      assert person.first_name == "Jane"
+      assert person.last_name == "Smith"
+      assert person.age == 28
 
       # Write the data back to a string
       output = TestPerson.write_string(people)
 
       # Read it again to verify it's consistent
       people2 = TestPerson.read_string(output)
-      assert length(people2) == 2
+      assert length(people2) == 3
+
       # Verify we have valid data with expected values - adjust for current order
       person = Enum.at(people2, 0)
-      assert person.first_name == "Jane"
-      assert person.last_name == "Smith"
-      assert person.age == 28
+      assert person.first_name == "John"
+      assert person.last_name == "Doe"
+      assert person.age == 30
     end
 
     test "read with custom options" do
@@ -120,7 +121,7 @@ defmodule Delimit.IntegrationTest do
           "John,Doe,30,50000.50,2020-01-15,true,Good employee"
 
       # Since headers option has been removed, all rows are always treated as data
-      result = TestPerson.read_string(csv_without_comments)
+      result = TestPerson.read_string(csv_without_comments, headers: true)
 
       # Result should contain one record (the last line)
       assert length(result) == 1
@@ -142,7 +143,8 @@ defmodule Delimit.IntegrationTest do
           "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
 
       # Use skip_lines to skip the comment lines (headers option is ignored now)
-      result = TestPerson.read_string(csv_with_comments_and_headers, skip_lines: 2)
+      result =
+        TestPerson.read_string(csv_with_comments_and_headers, skip_lines: 2, headers: true)
 
       # Verify we get 3 records after skipping comments
       assert length(result) == 3
@@ -171,17 +173,20 @@ defmodule Delimit.IntegrationTest do
           "header_row,to_skip,not,used,at,all,now\r\n" <>
           "John,Doe,30,50000.50,2020-01-15,true,Good employee"
 
-      # Test with skip_lines, it should work
+      # Test with skip_lines, it should work (skipping header line too)
       people = TestPerson.read_string(comments_csv, skip_lines: 3)
+
       # Verify that parsing works correctly (skipping all non-data rows)
       assert is_list(people)
+
       # With all the skips, we might have no data left
-      assert length(people) == 0
+      assert length(people) == 1
 
       # Test with skip_while
       people =
         TestPerson.read_string(comments_csv,
-          skip_while: fn line -> String.starts_with?(line, "#") end
+          skip_while: fn line -> String.starts_with?(line, "#") end,
+          headers: true
         )
 
       # Verify that parsing works correctly
@@ -209,7 +214,7 @@ defmodule Delimit.IntegrationTest do
           "Item 2,billed\r\n" <>
           "Item 3,pending"
 
-      items = TestCustomBoolean.read_string(csv_data)
+      items = TestCustomBoolean.read_string(csv_data, headers: true)
       assert length(items) == 3
 
       # Verify each item has the correct boolean value based on our custom mapping
@@ -231,7 +236,7 @@ defmodule Delimit.IntegrationTest do
           "Product A,tag1|tag2|tag3\r\n" <>
           "Product B,red|blue"
 
-      products = TestCustomConversionModule.read_string(csv_data)
+      products = TestCustomConversionModule.read_string(csv_data, headers: true)
       assert length(products) == 2
 
       # Verify the products have their tags properly converted to lists
@@ -289,12 +294,12 @@ defmodule Delimit.IntegrationTest do
       :ok = TestPerson.write(test_file, people)
 
       # Read from file
-      read_people = TestPerson.read(test_file)
+      read_people = TestPerson.read(test_file, headers: false)
 
-      # With position-based mapping and no headers, we get one row instead of two
-      assert length(read_people) == 1
+      assert length(read_people) == 2
+
       # Verify we got records with the expected structure and values
-      person = Enum.at(read_people, 0)
+      person = Enum.at(read_people, 1)
       assert person.first_name == "Jane"
       assert person.last_name == "Smith"
       assert person.age == 28

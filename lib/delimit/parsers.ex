@@ -35,22 +35,30 @@ defmodule Delimit.Parsers do
   @spec get_parser(String.t(), Keyword.t()) :: module()
   def get_parser(delimiter, _opts \\ []) do
     case delimiter do
-      "," -> DelimitCommaParser
-      "\t" -> DelimitTabParser
-      ";" -> DelimitSemicolonParser
-      "|" -> DelimitPipeParser
+      "," ->
+        DelimitCommaParser
+
+      "\t" ->
+        DelimitTabParser
+
+      ";" ->
+        DelimitSemicolonParser
+
+      "|" ->
+        DelimitPipeParser
+
       _ ->
         # For custom delimiters, create a unique parser
         unique_module_name =
           String.to_atom("DelimitDynamicParser_#{System.unique_integer([:positive])}")
 
         parser_opts = [separator: delimiter]
-        
+
         NimbleCSV.define(unique_module_name, parser_opts)
         unique_module_name
     end
   end
-  
+
   @doc """
   Gets a parser with custom escape character.
 
@@ -74,7 +82,7 @@ defmodule Delimit.Parsers do
     # Always create a custom parser with the specified escape character
     unique_module_name =
       String.to_atom("DelimitEscapeParser_#{System.unique_integer([:positive])}")
-    
+
     parser_opts = [
       separator: delimiter,
       escape: escape
