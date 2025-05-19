@@ -387,6 +387,61 @@ defmodule Delimit.ComprehensiveTest do
         assert String.starts_with?(item.name, "Processed: ")
       end)
     end
+
+    test "streams with skip_while and skip_lines" do
+      # Create a temporary file with comments and headers
+      test_file =
+        Path.join(System.tmp_dir(), "delimit_skip_test_#{:rand.uniform(1_000_000)}.csv")
+
+      on_exit(fn -> File.rm(test_file) end)
+
+      # Write a file with comments, headers, and garbage line
+      {:ok, file} = File.open(test_file, [:write])
+      IO.binwrite(file, "# This is a comment\r\n")
+      IO.binwrite(file, "# That spans multiple lines\r\n")
+      IO.binwrite(file, "This is a garbage line that should be skipped\r\n")
+      IO.binwrite(file, "1,John Doe,42.5,true,2023-01-15,tag1|tag2\r\n")
+      IO.binwrite(file, "2,Jane Smith,55.3,false,2022-05-10,tag3|tag4\r\n")
+      IO.binwrite(file, "3,Bob Johnson,33.7,true,2023-03-20,tag5|tag6\r\n")
+      File.close(file)
+
+      # We'll create a file with the following structure:
+      # - 2 comment lines (starting with #)
+      # - 1 "garbage" line that should be skipped
+      # - 3 data lines
+      #
+      # With skip_while and skip_lines together, we expect to:
+      # - Skip the 2 comment lines with skip_while
+      # - Skip the garbage line + first data line with skip_lines: 1
+      # - Keep only the last 2 data lines
+      
+      # Stream with skip options - first skip lines starting with #, then skip 1 more line
+      result =
+        test_file
+        |> SimpleSchema.stream(
+          skip_while: &String.starts_with?(&1, "#"),
+          skip_lines: 1
+        )
+        |> Enum.to_list()
+
+
+      # Should have 2 items (skipped the 2 comment lines and 1 garbage line + 1 data line)
+      assert length(result) == 2
+
+      # Verify first item data (after skipping lines)
+      first = Enum.at(result, 0)
+      assert first.id == 2
+      assert first.name == "Jane Smith"
+      assert first.value == 55.3
+      assert first.active == false
+
+      # Verify second item data
+      second = Enum.at(result, 1)
+      assert second.id == 3
+      assert second.name == "Bob Johnson"
+      assert second.value == 33.7
+      assert second.active == true
+    end
   end
 
   describe "escape character options" do

@@ -100,54 +100,42 @@ defmodule Delimit.Reader do
     # Merge options from schema, format, and function call
     options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
-    # Skip empty input
-    if String.trim(string) == "" do
-      []
-    else
-      # Get key options
-      delimiter = Keyword.get(options, :delimiter, ",")
-      escape = Keyword.get(options, :escape, "\"")
-      skip_lines = Keyword.get(options, :skip_lines, 0)
-      skip_while_fn = Keyword.get(options, :skip_while)
+    # Get key options
+    delimiter = Keyword.get(options, :delimiter, ",")
+    escape = Keyword.get(options, :escape, "\"")
+    skip_lines = Keyword.get(options, :skip_lines, 0)
+    skip_while_fn = Keyword.get(options, :skip_while)
 
-      # Parse directly with NimbleCSV, which handles CSV properly
-      parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: false)
+    # Parse directly with NimbleCSV, which handles CSV properly
+    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: false)
 
-      # Split into lines and apply preprocessing
-      lines = String.split(string, "\r\n")
-      filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
-      # Ensure string ends with CRLF for proper NimbleCSV parsing
-      adjusted_string = Enum.join(filtered_lines, "\r\n") <> "\r\n"
+    # Split into lines and apply preprocessing
+    lines = String.split(string, "\r\n")
+    filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
+    # Ensure string ends with CRLF for proper NimbleCSV parsing
+    adjusted_string = Enum.join(filtered_lines, "\r\n") <> "\r\n"
 
-      # Skip empty input after preprocessing
-      if String.trim(adjusted_string) == "" do
-        []
-      else
-        # Parse all rows
-        all_rows =
-          try do
-            parser.parse_string(adjusted_string)
-          rescue
-            _ ->
-              IO.puts(
-                "Warning: Initial parsing failed, trying with more lenient configuration"
-              )
+    # Parse all rows
+    all_rows =
+      try do
+        parser.parse_string(adjusted_string)
+      rescue
+        _ ->
+          IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
 
-              lenient_parser =
-                Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+          lenient_parser =
+            Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
-              lenient_parser.parse_string(adjusted_string)
-          end
-
-        # All rows are data - convert all rows to structs
-        # Process all rows as data
-        all_rows
-        |> Enum.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
-        |> Enum.map(fn row ->
-          Schema.to_struct(schema, row)
-        end)
+          lenient_parser.parse_string(adjusted_string)
       end
-    end
+
+    # All rows are data - convert all rows to structs
+    # Process all rows as data
+    all_rows
+    |> Enum.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
+    |> Enum.map(fn row ->
+      Schema.to_struct(schema, row)
+    end)
   end
 
   @doc """
@@ -194,22 +182,19 @@ defmodule Delimit.Reader do
     skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_while_fn = Keyword.get(options, :skip_while)
 
-    # Simple case - use NimbleCSV directly with no preprocessing
-    if skip_lines == 0 && skip_while_fn == nil do
-      # Make sure to use a parser that doesn't skip any rows
-      parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+    # Create parser that doesn't skip any rows
+    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
-      path
-      |> File.stream!()
-      |> parser.parse_stream()
-      |> Stream.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
-      |> Stream.map(fn row ->
-        Schema.to_struct(schema, row)
-      end)
-    else
-      # For skip options, we need preprocessing
-      stream_with_preprocessing(schema, path, options)
-    end
+    # Build the stream pipeline properly using Stream functions
+    path
+    |> File.stream!()
+    |> maybe_skip_while(skip_while_fn)
+    |> maybe_skip_lines(skip_lines)
+    |> parser.parse_stream()
+    |> Stream.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
+    |> Stream.map(fn row ->
+      Schema.to_struct(schema, row)
+    end)
   end
 
   # Process lines: handle skips, empty lines, comments
@@ -223,52 +208,15 @@ defmodule Delimit.Reader do
     lines
   end
 
-  # Handle streaming with preprocessing for skipping lines
-  defp stream_with_preprocessing(schema, path, options) do
-    # Get key options
-    delimiter = Keyword.get(options, :delimiter, ",")
-    escape = Keyword.get(options, :escape, "\"")
-    skip_lines = Keyword.get(options, :skip_lines, 0)
-    skip_while_fn = Keyword.get(options, :skip_while)
+  # Helper function to conditionally skip lines in a stream
+  defp maybe_skip_lines(stream, 0), do: stream
 
-    # Create parser - no skip_headers
-    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+  defp maybe_skip_lines(stream, skip_count) when is_integer(skip_count) and skip_count > 0,
+    do: Stream.drop(stream, skip_count)
 
-    # First, read and process the file
-    {:ok, content} = File.read(path)
+  # Helper function to conditionally skip lines using a predicate function
+  defp maybe_skip_while(stream, nil), do: stream
 
-    # Split into lines and apply preprocessing (using CRLF for better NimbleCSV compatibility)
-    lines = String.split(content, "\r\n")
-    filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
-
-    # Ensure string ends with CRLF for proper NimbleCSV parsing
-    adjusted_content = Enum.join(filtered_lines, "\r\n") <> "\r\n"
-
-    # Parse all rows
-    all_rows = parser.parse_string(adjusted_content)
-
-    if all_rows == [] do
-      # No valid rows after parsing
-      Stream.map([], & &1)
-    else
-      # Create a stream directly from the rows - ensure we get ALL rows
-      data_stream =
-        Stream.map(all_rows, fn row ->
-          # Skip empty rows
-          if Enum.all?(row, &(&1 == "")) do
-            nil
-          else
-            Schema.to_struct(schema, row)
-          end
-        end)
-
-      # Filter out nil values (from empty rows)
-      Stream.reject(data_stream, &is_nil/1)
-    end
-  end
-
-  # This function was removed as it's no longer needed
-  # We now use preprocess_lines instead
-
-  # This function was removed as we no longer use header-based mapping
+  defp maybe_skip_while(stream, skip_while_fn) when is_function(skip_while_fn, 1),
+    do: Stream.drop_while(stream, skip_while_fn)
 end
