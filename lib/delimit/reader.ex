@@ -113,16 +113,8 @@ defmodule Delimit.Reader do
       # Parse directly with NimbleCSV, which handles CSV properly
       parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape, skip_headers: false)
 
-      # Normalize line endings to CRLF for better compatibility with NimbleCSV
-      normalized_string =
-        string
-        # First normalize to LF
-        |> String.replace("\r\n", "\n")
-        # Then convert to CRLF
-        |> String.replace("\n", "\r\n")
-
       # Split into lines and apply preprocessing
-      lines = String.split(normalized_string, "\r\n")
+      lines = String.split(string, "\r\n")
       filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
       # Ensure string ends with CRLF for proper NimbleCSV parsing
       adjusted_string = Enum.join(filtered_lines, "\r\n") <> "\r\n"
@@ -220,15 +212,6 @@ defmodule Delimit.Reader do
     end
   end
 
-  # Normalize line endings to \r\n for better NimbleCSV compatibility
-  defp normalize_line_endings(string) do
-    string
-    # First normalize to LF
-    |> String.replace("\r\n", "\n")
-    # Then convert to CRLF
-    |> String.replace("\n", "\r\n")
-  end
-
   # Process lines: handle skips, empty lines, comments
   defp preprocess_lines(lines, skip_lines, skip_while_fn) do
     # Apply skip_while function if provided
@@ -253,8 +236,6 @@ defmodule Delimit.Reader do
 
     # First, read and process the file
     {:ok, content} = File.read(path)
-    # Normalize to CRLF for better NimbleCSV compatibility
-    content = normalize_line_endings(content)
 
     # Split into lines and apply preprocessing (using CRLF for better NimbleCSV compatibility)
     lines = String.split(content, "\r\n")

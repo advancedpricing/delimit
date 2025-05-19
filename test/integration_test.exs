@@ -68,14 +68,13 @@ defmodule Delimit.IntegrationTest do
     test "read and write string data" do
       # Create csv string with proper line endings
       csv_data =
-        "first_name,last_name,age,salary,hired_date,active,notes\n" <>
-          "John,Doe,30,50000.50,2020-01-15,true,Good employee\n" <>
-          "Jane,Smith,28,55000.75,2019-05-20,true,\n" <>
+        "first_name,last_name,age,salary,hired_date,active,notes\r\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee\r\n" <>
+          "Jane,Smith,28,55000.75,2019-05-20,true,\r\n" <>
           "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
-          
 
       # Read the CSV data
-      people = csv_data |> TestPerson.read_string()
+      people = TestPerson.read_string(csv_data)
 
       # With the CSV data including 3 rows, we'll get all 3 (since headers are treated as data now)
       assert length(people) == 3
@@ -109,56 +108,57 @@ defmodule Delimit.IntegrationTest do
     test "read with custom options" do
       # CSV with comments at the top (unused in this test)
       _comments_csv =
-        "# This is a comment\n" <>
-          "# Another comment line\n" <>
-          "first_name,last_name,age,salary,hired_date,active,notes\n" <>
+        "# This is a comment\r\n" <>
+          "# Another comment line\r\n" <>
+          "first_name,last_name,age,salary,hired_date,active,notes\r\n" <>
           "John,Doe,30,50000.50,2020-01-15,true,Good employee"
 
       # Comments at the top should be skipped, but valid data should be processed
       # Directly supply CSV without comments to test basic functionality
       csv_without_comments =
-        "first_name,last_name,age,salary,hired_date,active,notes\n" <>
-        "John,Doe,30,50000.50,2020-01-15,true,Good employee"
-        
+        "first_name,last_name,age,salary,hired_date,active,notes\r\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee"
+
       # Since headers option has been removed, all rows are always treated as data
       result = TestPerson.read_string(csv_without_comments)
 
       # Result should contain one record (the last line)
       assert length(result) == 1
       first_item = List.first(result)
-      assert first_item.first_name == "John" 
+      assert first_item.first_name == "John"
       assert first_item.last_name == "Doe"
       assert first_item.age == 30
-      assert first_item.salary == 50000.50
+      assert first_item.salary == 50_000.50
     end
 
     test "read with skip_lines and headers" do
       # CSV with comments before the header line
       csv_with_comments_and_headers =
-        "# This is a comment\n" <>
-        "# Another comment line\n" <>
-        "first_name,last_name,age,salary,hired_date,active,notes\n" <>
-        "John,Doe,30,50000.50,2020-01-15,true,Good employee\n" <>
-        "Jane,Smith,28,55000.75,2019-05-20,true,\n" <>
-        "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
+        "# This is a comment\r\n" <>
+          "# Another comment line\r\n" <>
+          "first_name,last_name,age,salary,hired_date,active,notes\r\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee\r\n" <>
+          "Jane,Smith,28,55000.75,2019-05-20,true,\r\n" <>
+          "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
 
       # Use skip_lines to skip the comment lines (headers option is ignored now)
       result = TestPerson.read_string(csv_with_comments_and_headers, skip_lines: 2)
 
       # Verify we get 3 records after skipping comments
       assert length(result) == 3
-      
+
       # Verify the first record has proper values from the first data row
       first_item = Enum.at(result, 0)
       assert first_item != nil
-      assert first_item.first_name == "John"  # First data row after skipping
-      
+      # First data row after skipping
+      assert first_item.first_name == "John"
+
       # Verify the second record was properly parsed too
       second_item = Enum.at(result, 1)
       assert second_item != nil
       assert second_item.first_name == "Jane"
       assert second_item.last_name == "Smith"
-      
+
       # With the current implementation we don't get the third record
       # So we only test the first two records
     end
@@ -166,16 +166,17 @@ defmodule Delimit.IntegrationTest do
     test "read and write with skip_lines" do
       # CSV with comments at the top (redefined for this test)
       comments_csv =
-        "# This is a comment\n" <>
-        "# Another comment line\n" <>
-        "header_row,to_skip,not,used,at,all,now\n" <>
-        "John,Doe,30,50000.50,2020-01-15,true,Good employee"
-        
+        "# This is a comment\r\n" <>
+          "# Another comment line\r\n" <>
+          "header_row,to_skip,not,used,at,all,now\r\n" <>
+          "John,Doe,30,50000.50,2020-01-15,true,Good employee"
+
       # Test with skip_lines, it should work
       people = TestPerson.read_string(comments_csv, skip_lines: 3)
       # Verify that parsing works correctly (skipping all non-data rows)
       assert is_list(people)
-      assert length(people) == 0  # With all the skips, we might have no data left
+      # With all the skips, we might have no data left
+      assert length(people) == 0
 
       # Test with skip_while
       people =
@@ -203,9 +204,9 @@ defmodule Delimit.IntegrationTest do
       end
 
       csv_data =
-        "item,paid\n" <>
-          "Item 1,paid\n" <>
-          "Item 2,billed\n" <>
+        "item,paid\r\n" <>
+          "Item 1,paid\r\n" <>
+          "Item 2,billed\r\n" <>
           "Item 3,pending"
 
       items = TestCustomBoolean.read_string(csv_data)
@@ -215,17 +216,19 @@ defmodule Delimit.IntegrationTest do
       # First row will be the header itself treated as data
       first_item = Enum.at(items, 1)
       assert first_item.item == "Item 2"
-      assert first_item.paid == false  # "billed" value
+      # "billed" value
+      assert first_item.paid == false
 
       second_item = Enum.at(items, 2)
       assert second_item.item == "Item 3"
-      assert second_item.paid == false  # "pending" value
+      # "pending" value
+      assert second_item.paid == false
     end
 
     test "custom read/write functions" do
       csv_data =
-        "name,tags\n" <>
-          "Product A,tag1|tag2|tag3\n" <>
+        "name,tags\r\n" <>
+          "Product A,tag1|tag2|tag3\r\n" <>
           "Product B,red|blue"
 
       products = TestCustomConversionModule.read_string(csv_data)

@@ -47,14 +47,8 @@ defmodule Delimit.ComprehensiveTest do
     test "reads CSV without headers" do
       # CSV data without headers - ensure consistent line endings
       csv_data =
-        String.replace(
-          """
-          1,John Doe,42.5,true,2023-01-15,tag1|tag2
-          2,Jane Smith,55.3,false,2022-05-10,
-          """,
-          "\r\n",
-          "\n"
-        )
+        "1,John Doe,42.5,true,2023-01-15,tag1|tag2\r\n" <>
+          "2,Jane Smith,55.3,false,2022-05-10,"
 
       # Parse CSV - headers option is ignored in new implementation
       items = SimpleSchema.read_string(csv_data)
@@ -74,17 +68,11 @@ defmodule Delimit.ComprehensiveTest do
     test "skip using skip_fn then skip_lines" do
       # CSV data without headers - ensure consistent line endings
       csv_data =
-        String.replace(
-          """
-          # This is a comment
-          # that is multiple lines
-          This is just garbage, but should be skipped as well.
-          1,John Doe,42.5,true,2023-01-15,tag1|tag2
-          2,Jane Smith,55.3,false,2022-05-10,
-          """,
-          "\r\n",
-          "\n"
-        )
+        "# This is a comment\r\n" <>
+          "# that is multiple lines\r\n" <>
+          "This is just garbage, but should be skipped as well.\r\n" <>
+          "1,John Doe,42.5,true,2023-01-15,tag1|tag2\r\n" <>
+          "2,Jane Smith,55.3,false,2022-05-10,"
 
       # Parse CSV - headers option is ignored in new implementation
       items =
@@ -240,14 +228,8 @@ defmodule Delimit.ComprehensiveTest do
     test "uses default values for missing data" do
       # CSV with missing values
       csv_data =
-        String.replace(
-          """
-          id,name,value,active,created_at,description
-          1,,,,
-          """,
-          "\r\n",
-          "\n"
-        )
+        "id,name,value,active,created_at,description\r\n" <>
+          "1,,,,"
 
       items = SchemaWithDefaults.read_string(csv_data)
 
@@ -298,15 +280,11 @@ defmodule Delimit.ComprehensiveTest do
     test "delimiter option" do
       # CSV with semicolon delimiter
       csv_data =
-        String.replace(
-          """
-          id;name;value;active;created_at;tags
-          1;John Doe;42.5;true;2023-01-15;tag1|tag2
-          2;Jane Smith;55.3;false;2022-05-10;
-          """,
-          "\r\n",
-          "\n"
-        )
+        """
+        id;name;value;active;created_at;tags
+        1;John Doe;42.5;true;2023-01-15;tag1|tag2
+        2;Jane Smith;55.3;false;2022-05-10;
+        """
 
       # Parse with semicolon delimiter
       items = SimpleSchema.read_string(csv_data, delimiter: ";")
@@ -473,15 +451,11 @@ defmodule Delimit.ComprehensiveTest do
     # This is a test specifically to ensure that we don't skip
     # both the header row AND the first data row
     csv_data =
-      String.replace(
-        """
-        id,name,value,active,created_at,tags
-        1,First Row,42.5,true,2023-01-15,first_row_tag
-        2,Second Row,55.3,false,2022-05-10,second_row_tag
-        """,
-        "\r\n",
-        "\n"
-      )
+      """
+      id,name,value,active,created_at,tags
+      1,First Row,42.5,true,2023-01-15,first_row_tag
+      2,Second Row,55.3,false,2022-05-10,second_row_tag
+      """
 
     # Parse the CSV - headers option is ignored in new implementation
     items = SimpleSchema.read_string(csv_data)
@@ -562,18 +536,14 @@ defmodule Delimit.ComprehensiveTest do
   test "skip_while with complex condition" do
     # CSV with metadata before actual data
     csv_with_metadata =
-      String.replace(
-        """
-        # Metadata: Generated on 2023-01-15
-        # Owner: Test User
-        # Version: 1.0
-        id,name,value,active,created_at,tags
-        1,John,42.5,true,2023-01-15,tag1|tag2
-        2,Jane,55.3,false,2022-05-10,
-        """,
-        "\r\n",
-        "\n"
-      )
+      """
+      # Metadata: Generated on 2023-01-15
+      # Owner: Test User
+      # Version: 1.0
+      id,name,value,active,created_at,tags
+      1,John,42.5,true,2023-01-15,tag1|tag2
+      2,Jane,55.3,false,2022-05-10,
+      """
 
     # Skip lines that are metadata and include the headers (metadata leading up to the headers)
     # First skip the metadata and get to the header line
