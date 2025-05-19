@@ -246,12 +246,15 @@ defmodule Delimit.Schema do
 
       # Handle empty fields appropriately
       raw_value = if raw_value == "", do: nil, else: raw_value
+      
+      # Apply default value for nil fields
+      raw_value = if is_nil(raw_value) && Keyword.has_key?(field.opts, :default), do: Keyword.get(field.opts, :default), else: raw_value
 
       # Pass trim_fields option to the field
       field_with_opts = %{field | opts: Keyword.merge(field.opts, Keyword.take(opts, [:trim_fields]))}
 
-      # Parse the value according to field type if not nil
-      parsed_value = if is_nil(raw_value), do: nil, else: Field.parse_value(raw_value, field_with_opts)
+      # Parse the value according to field type
+      parsed_value = Field.parse_value(raw_value, field_with_opts)
 
       # Add to accumulator
       Map.put(acc, field.name, parsed_value)

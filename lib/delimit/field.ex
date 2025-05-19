@@ -140,10 +140,10 @@ defmodule Delimit.Field do
       true
   """
   @spec parse_value(String.t() | nil, t()) :: any()
-  def parse_value(nil, field), do: field.opts[:default]
+  def parse_value(nil, field), do: Keyword.get(field.opts, :default)
   def parse_value("", field) do
     nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
-    if nil_on_empty, do: field.opts[:default], else: ""
+    if nil_on_empty, do: Keyword.get(field.opts, :default), else: ""
   end
   # Handle whitespace-only strings
   def parse_value(value, field) when is_binary(value) do
@@ -155,7 +155,7 @@ defmodule Delimit.Field do
       trimmed = String.trim(value)
       if trimmed == "" do
         nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
-        if nil_on_empty, do: field.opts[:default], else: ""
+        if nil_on_empty, do: Keyword.get(field.opts, :default), else: ""
       else
         parse_value_with_trim(value, field)
       end
@@ -166,27 +166,39 @@ defmodule Delimit.Field do
     if not is_nil(read_fn) do
       read_fn.(value)
     else
-      parse_value_with_trim(value, field)
+      # If it's already a non-string value (like a default value that's been applied),
+      # just use it directly
+      value
     end
   end
 
   defp parse_value_with_trim(value, field) do
-    if Keyword.get(field.opts, :trim_fields) == false do
-      do_parse_value(value, field)
+    # Only apply trim logic to binary values
+    if not is_binary(value) do
+      value
     else
-      parse_value_trimmed(value, field)
+      if Keyword.get(field.opts, :trim_fields) == false do
+        do_parse_value(value, field)
+      else
+        parse_value_trimmed(value, field)
+      end
     end
   end
 
   defp parse_value_trimmed(value, field) do
-    trimmed = String.trim(value)
-    # Check if the string became empty after trimming
-    if trimmed == "" do
-      nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
-      if nil_on_empty, do: field.opts[:default], else: ""
+    # Only apply trim to binary values
+    if not is_binary(value) do
+      value
     else
-      # Handle the common case more directly
-      do_parse_value(trimmed, field)
+      trimmed = String.trim(value)
+      # Check if the string became empty after trimming
+      if trimmed == "" do
+        nil_on_empty = Keyword.get(field.opts, :nil_on_empty, true)
+        if nil_on_empty, do: Keyword.get(field.opts, :default), else: ""
+      else
+        # Handle the common case more directly
+        do_parse_value(trimmed, field)
+      end
     end
   end
 

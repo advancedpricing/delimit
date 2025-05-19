@@ -70,38 +70,41 @@ defmodule Delimit.Reader do
         raise "Failed to read file: #{reason}"
     end
   end
-
   @doc """
-  Reads delimited data from a string.
+Reads delimited data from a string.
 
-  ## Parameters
+## Parameters
 
-    * `schema` - The schema definition
-    * `string` - String containing delimited data
-    * `opts` - Read options that override schema options
+  * `schema` - The schema definition
+  * `string` - String containing delimited data
+  * `opts` - Read options that override schema options
 
-  ## Returns
+## Returns
 
-    * List of structs with parsed data based on schema
+  * List of structs with parsed data based on schema
 
-  ## Examples
+## Examples
 
-      iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
-      iex> MyApp.Person.read_string(csv_data)
-      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+    iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
+    iex> MyApp.Person.read_string(csv_data)
+    [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
 
-      iex> tsv_data = "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42"
-      iex> MyApp.Person.read_string(tsv_data, format: :tsv)
-      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
-  """
-  @spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
-  def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
-    # Extract format option if present
-    {format, custom_opts} = Keyword.pop(opts, :format)
+    iex> tsv_data = "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42"
+    iex> MyApp.Person.read_string(tsv_data, format: :tsv)
+    [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+"""
+@spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
+def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
+  # Extract format option if present
+  {format, custom_opts} = Keyword.pop(opts, :format)
 
-    # Merge options from schema, format, and function call
-    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
+  # Merge options from schema, format, and function call
+  options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
+  # Handle empty string case explicitly
+  if string == "" do
+    []
+  else
     # Get key options
     delimiter = Keyword.get(options, :delimiter, ",")
     escape = Keyword.get(options, :escape, "\"")
@@ -113,34 +116,52 @@ defmodule Delimit.Reader do
     parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
     # Split into lines and apply preprocessing
-    lines = String.split(string, "\r\n")
+    # Handle both \r\n and \n line endings
+    lines = String.split(string, ~r/\r?\n/)
+    
+    # Filter lines through the preprocessing
     filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
-    # Ensure string ends with CRLF for proper NimbleCSV parsing
-    adjusted_string = Enum.join(filtered_lines, "\r\n") <> "\r\n"
-
-    # Parse all rows
-    all_rows =
-      try do
-        parser.parse_string(adjusted_string, skip_headers: false)
-      rescue
-        _ ->
-          IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
-
-          lenient_parser =
-            Delimit.Parsers.get_parser_with_escape(delimiter, escape)
-
-          lenient_parser.parse_string(adjusted_string, skip_headers: false)
-      end
-
-    # All rows are data - convert all rows to structs
-    # Process all rows as data
-    all_rows
-    |> Enum.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
-    |> Enum.map(fn row ->
-      # Pass the trim_fields option to the struct creation
-      Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
+    
+    # Keep only lines that have content or contain delimiters
+    filtered_lines = Enum.filter(filtered_lines, fn line -> 
+      trimmed = String.trim(line)
+      trimmed != "" || String.contains?(line, delimiter)
     end)
+      
+    # Handle empty input case
+    if filtered_lines == [] do
+      []
+    else
+      # Ensure string ends with LF for proper NimbleCSV parsing
+      adjusted_string = Enum.join(filtered_lines, "\n") <> "\n"
+
+      # Parse all rows
+      all_rows =
+        try do
+          parser.parse_string(adjusted_string, skip_headers: false)
+        rescue
+          _ ->
+            IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
+
+            lenient_parser =
+              Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+
+            lenient_parser.parse_string(adjusted_string, skip_headers: false)
+        end
+
+      # Process all rows as data
+      all_rows
+      |> Enum.reject(fn row -> 
+        # Row is empty when it has no elements or only empty strings
+        length(row) == 0
+      end)
+      |> Enum.map(fn row ->
+        # Pass the trim_fields option to the struct creation
+        Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
+      end)
+    end
   end
+end
 
   @doc """
   Streams delimited data from a file.
@@ -186,6 +207,12 @@ defmodule Delimit.Reader do
     skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_while_fn = Keyword.get(options, :skip_while)
 
+    # Skip any blank lines that don't contain delimiters
+    skip_empty_fn = fn line -> 
+      trimmed = String.trim(line)
+      trimmed == "" && !String.contains?(line, delimiter)
+    end
+
     # Create parser that doesn't skip any rows
     parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
@@ -194,8 +221,12 @@ defmodule Delimit.Reader do
     |> File.stream!()
     |> maybe_skip_while(skip_while_fn)
     |> maybe_skip_lines(skip_lines)
+    |> Stream.reject(skip_empty_fn)
     |> parser.parse_stream()
-    |> Stream.reject(fn row -> length(row) == 0 || Enum.all?(row, &(&1 == "")) end)
+    |> Stream.reject(fn row -> 
+      # Row is empty when it has no elements (completely empty row)
+      length(row) == 0
+    end)
     |> Stream.map(fn row ->
       # Pass the trim_fields option to the struct creation
       Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
@@ -210,8 +241,12 @@ defmodule Delimit.Reader do
     # Apply skip_lines option
     lines = if skip_lines > 0, do: Enum.drop(lines, skip_lines), else: lines
 
+    # Return all lines (including empty/whitespace ones)
+    # The calling function will handle empty files specifically
     lines
   end
+  
+
 
   # Helper function to conditionally skip lines in a stream
   defp maybe_skip_lines(stream, 0), do: stream

@@ -182,6 +182,71 @@ defmodule Delimit.ReaderTest do
       # default value
       assert item.active == false
     end
+
+    test "row with only commas is considered an empty row with defaults" do
+      # CSV with just commas (empty fields)
+      csv_string = ",,"
+
+      # Read with defaults schema
+      items = SchemaWithDefaults.read_string(csv_string)
+
+      assert length(items) == 1
+
+      # Row should use all defaults
+      item = Enum.at(items, 0)
+      assert item.name == "Unknown"
+      assert item.age == 0
+      assert item.active == false
+    end
+
+    test "mixed empty and comma-only lines" do
+      # CSV with mixed content:
+      # 1. Row with data
+      # 2. Empty line (no commas)
+      # 3. Line with just commas (empty fields)
+      # 4. Another row with data
+      # 5. Empty trailing line
+      csv_string = """
+      John Doe,30,
+
+      ,,
+      Jane Smith,,
+
+      """
+
+      # Read with defaults schema
+      items = SchemaWithDefaults.read_string(csv_string)
+
+      # Should have 3 rows:
+      # - The first data row (John)
+      # - The comma-only row (with defaults)
+      # - The second data row (Jane)
+      assert length(items) == 3
+
+      # First row should have name and age from data
+      item = Enum.at(items, 0)
+      assert item.name == "John Doe"
+      assert item.age == 30
+      # default
+      assert item.active == false
+
+      # Second row (the comma-only row) should use all defaults
+      item = Enum.at(items, 1)
+      # default
+      assert item.name == "Unknown"
+      # default
+      assert item.age == 0
+      # default
+      assert item.active == false
+
+      # Third row should have name from data, others from defaults
+      item = Enum.at(items, 2)
+      assert item.name == "Jane Smith"
+      # default
+      assert item.age == 0
+      # default
+      assert item.active == false
+    end
   end
 
   describe "parsing options" do
