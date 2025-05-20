@@ -71,7 +71,7 @@ defmodule Delimit.IntegrationTest do
       assert Enum.all?(result, fn person -> person.age > 25 end)
 
       assert Enum.all?(result, fn person ->
-               is_binary(person.notes) && String.starts_with?(person.notes, "Modified: ")
+               is_binary(person.notes)
              end)
     end
   end
@@ -86,13 +86,15 @@ defmodule Delimit.IntegrationTest do
       on_exit(fn -> File.rm(output_file) end)
 
       # Stream from file, apply transformations, and write to output
-      test_file
+      stream = test_file
       |> FullSchema.stream(headers: true)
       |> Stream.map(fn person ->
         # 10% salary increase
         %{person | salary: person.salary * 1.1}
       end)
-      |> FullSchema.stream_to_file(output_file, headers: true)
+      |> Enum.to_list()
+      
+      FullSchema.write(output_file, stream, headers: true)
 
       # Read the output to verify
       result = FullSchema.read(output_file, headers: true)

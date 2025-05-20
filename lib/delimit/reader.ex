@@ -70,90 +70,125 @@ defmodule Delimit.Reader do
         raise "Failed to read file: #{reason}"
     end
   end
+
   @doc """
-Reads delimited data from a string.
+  Reads delimited data from a string.
 
-## Parameters
+  ## Parameters
 
-  * `schema` - The schema definition
-  * `string` - String containing delimited data
-  * `opts` - Read options that override schema options
+    * `schema` - The schema definition
+    * `string` - String containing delimited data
+    * `opts` - Read options that override schema options
 
-## Returns
+  ## Returns
 
-  * List of structs with parsed data based on schema
+    * List of structs with parsed data based on schema
 
-## Examples
+  ## Examples
 
-    iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
-    iex> MyApp.Person.read_string(csv_data)
-    [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+      iex> csv_data = "first_name,last_name,age\\nJohn,Doe,42"
+      iex> MyApp.Person.read_string(csv_data)
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
 
-    iex> tsv_data = "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42"
-    iex> MyApp.Person.read_string(tsv_data, format: :tsv)
-    [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
-"""
-@spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
-def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
-  # Extract format option if present
-  {format, custom_opts} = Keyword.pop(opts, :format)
+      iex> tsv_data = "first_name\\tlast_name\\tage\\nJohn\\tDoe\\t42"
+      iex> MyApp.Person.read_string(tsv_data, format: :tsv)
+      [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}]
+  """
+  @spec read_string(Schema.t(), binary(), read_options()) :: [struct()]
+  def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) do
+    # Extract format option if present
+    {format, custom_opts} = Keyword.pop(opts, :format)
 
-  # Merge options from schema, format, and function call
-  options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
+    # Merge options from schema, format, and function call
+    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
-  # Handle empty string case explicitly
-  if string == "" do
-    []
-  else
-    # Get key options
-    delimiter = Keyword.get(options, :delimiter, ",")
-    escape = Keyword.get(options, :escape, "\"")
-    skip_while_fn = Keyword.get(options, :skip_while)
-    skip_lines = Keyword.get(options, :skip_lines, 0)
-    skip_lines = if Keyword.get(options, :headers, false), do: skip_lines + 1, else: skip_lines
+    # Handle empty string case explicitly
+    if string == "" do
+      []
+    else
+      # Get key options
+      delimiter = Keyword.get(options, :delimiter, ",")
+      escape = Keyword.get(options, :escape, "\"")
+      skip_while_fn = Keyword.get(options, :skip_while)
+      skip_lines = Keyword.get(options, :skip_lines, 0)
+      # Check if headers are enabled
+      headers_enabled = Keyword.get(options, :headers, false)
 
-    # Parse directly with NimbleCSV, which handles CSV properly
-    parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+      # Parse directly with NimbleCSV, which handles CSV properly
+      parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
-    # Handle empty input case
-      if string == "" || string |> String.trim() == "" do
+      # Handle empty input case
+      if string == "" || String.trim(string) == "" do
         []
       else
         # Preprocess lines to handle skipping if needed
-        string = if skip_lines > 0 || skip_while_fn do
-          lines = String.split(string, ~r/\r?\n/)
-          filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
-          Enum.join(filtered_lines, "\n")
-        else
-          string
-        end
+        {string_to_parse, header_row} =
+          if headers_enabled do
+            lines = String.split(string, ~r/\r?\n/)
 
-        # Parse all rows with NimbleCSV
+            # First apply skip_while to filter out comment lines
+            filtered_lines =
+              if skip_while_fn, do: Enum.reject(lines, skip_while_fn), else: lines
+
+            # Extract header row if it exists from filtered lines
+            header_row =
+              if length(filtered_lines) > 0 do
+                first_line = Enum.at(filtered_lines, 0)
+                parsed = parser.parse_string(first_line, skip_headers: false)
+                if length(parsed) > 0, do: Enum.at(parsed, 0, []), else: []
+              else
+                []
+              end
+
+            # Process lines - skip header and any additional lines
+            data_lines = filtered_lines |> Enum.drop(1) |> Enum.drop(skip_lines)
+
+            {Enum.join(data_lines, "\n"), header_row}
+          else
+            filtered_string =
+              if skip_lines > 0 || skip_while_fn do
+                lines = String.split(string, ~r/\r?\n/)
+                filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
+                Enum.join(filtered_lines, "\n")
+              else
+                string
+              end
+
+            {filtered_string, nil}
+          end
+
+        # Parse all rows with NimbleCSV using the filtered string
         all_rows =
           try do
-            parser.parse_string(string, skip_headers: false)
+            parser.parse_string(string_to_parse, skip_headers: false)
           rescue
             _ ->
-              IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
               lenient_parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
-              lenient_parser.parse_string(string, skip_headers: false)
+              lenient_parser.parse_string(string_to_parse, skip_headers: false)
           end
 
         # NimbleCSV will treat a line with just commas differently than a blank line
         # We want to keep rows that have *any* content, even if just commas for empty fields
         # but need to filter out totally blank rows
         all_rows
-        |> Enum.reject(fn row -> 
+        |> Enum.reject(fn row ->
           # Only reject completely empty rows (no elements)
           length(row) == 0
         end)
         |> Enum.map(fn row ->
-          # Pass the trim_fields option to the struct creation
-          Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
+          # Pass the trim_fields option and headers to the struct creation
+          opts_with_headers =
+            if headers_enabled && length(header_row) > 0 do
+              Keyword.merge(Keyword.take(options, [:trim_fields]), headers: header_row)
+            else
+              Keyword.take(options, [:trim_fields])
+            end
+
+          Schema.to_struct(schema, row, opts_with_headers)
         end)
       end
+    end
   end
-end
 
   @doc """
   Streams delimited data from a file.
@@ -208,9 +243,9 @@ end
     |> maybe_skip_while(skip_while_fn)
     |> maybe_skip_lines(skip_lines)
     |> parser.parse_stream()
-    |> Stream.reject(fn row -> 
+    |> Stream.reject(fn row ->
       # Only reject completely empty rows (no elements)
-      length(row) == 0 
+      length(row) == 0
     end)
     |> Stream.map(fn row ->
       # Pass the trim_fields option to the struct creation
@@ -220,18 +255,19 @@ end
 
   # Process lines: handle skips, empty lines, comments
   defp preprocess_lines(lines, skip_lines, skip_while_fn) do
-    # Apply skip_while function if provided
-    lines = if skip_while_fn, do: Enum.drop_while(lines, skip_while_fn), else: lines
+    # First apply skip_while function to filter comment lines
+    lines_after_filter = if skip_while_fn, do: Enum.reject(lines, skip_while_fn), else: lines
 
-    # Apply skip_lines option
-    lines = if skip_lines > 0, do: Enum.drop(lines, skip_lines), else: lines
+    # Then apply skip_lines option to skip any header lines
+    lines_after_skip =
+      if skip_lines > 0,
+        do: Enum.drop(lines_after_filter, skip_lines),
+        else: lines_after_filter
 
     # Return all lines (including empty/whitespace ones)
     # The calling function will handle empty files specifically
-    lines
+    lines_after_skip
   end
-  
-
 
   # Helper function to conditionally skip lines in a stream
   defp maybe_skip_lines(stream, 0), do: stream
@@ -243,5 +279,5 @@ end
   defp maybe_skip_while(stream, nil), do: stream
 
   defp maybe_skip_while(stream, skip_while_fn) when is_function(skip_while_fn, 1),
-    do: Stream.drop_while(stream, skip_while_fn)
+    do: Stream.reject(stream, skip_while_fn)
 end

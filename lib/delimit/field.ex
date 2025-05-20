@@ -404,10 +404,17 @@ defmodule Delimit.Field do
   end
 
   defp do_to_string(value, %__MODULE__{type: :boolean} = field) when is_boolean(value) do
-    if value do
-      field.opts[:true_value] || "true"
-    else
-      field.opts[:false_value] || "false"
+    cond do
+      value && Keyword.has_key?(field.opts, :true_values) && length(field.opts[:true_values]) > 0 ->
+        # Use the first value from the true_values list as the string representation
+        hd(field.opts[:true_values])
+      !value && Keyword.has_key?(field.opts, :false_values) && length(field.opts[:false_values]) > 0 ->
+        # Use the first value from the false_values list as the string representation
+        hd(field.opts[:false_values])
+      value ->
+        field.opts[:true_value] || "true"
+      true ->
+        field.opts[:false_value] || "false"
     end
   end
 

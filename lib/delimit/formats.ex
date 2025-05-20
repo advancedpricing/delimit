@@ -91,12 +91,13 @@ defmodule Delimit.Formats do
         |> Keyword.merge(custom_options)
     end
     
-    # Special handling for newlines in the content
-    # Ensure correct line endings are preserved
-    options = if Keyword.get(options, :delimiter) == "\t" do
-      Keyword.put_new(options, :line_ending, "\n")
-    else
-      options
+    # Special handling for format-specific options
+    options = case format do
+      :tsv ->
+        # For TSV, ensure format is preserved
+        Keyword.put_new(options, :delimiter, "\t")
+      _ ->
+        options
     end
     
     options

@@ -68,6 +68,8 @@ defmodule Delimit.EmbedsTest do
       # Write to string with headers
       output = Customer.write_string([customer], headers: true)
       
+
+      
       # Verify output contains all fields
       assert String.contains?(output, "name,contact_email,billing_address_street")
       assert String.contains?(output, "ACME Corp,contact@acme.com,123 Billing St")
@@ -94,11 +96,11 @@ defmodule Delimit.EmbedsTest do
         })
       })
       
-      # Write to string
-      output = Customer.write_string([original_customer])
+      # Write to string with headers so embedded fields are correctly mapped
+      output = Customer.write_string([original_customer], headers: true)
       
-      # Read back
-      customers = Customer.read_string(output)
+      # Read back with headers enabled
+      customers = Customer.read_string(output, headers: true)
       
       # Verify data is preserved
       assert length(customers) == 1

@@ -46,8 +46,22 @@ defmodule Delimit.Writer do
   """
   @spec write_file(Schema.t(), Path.t(), [struct()], write_options()) :: :ok
   def write_file(%Schema{} = schema, path, data, opts \\ []) do
-    # Extract format option if present
-    {format, custom_opts} = Keyword.pop(opts, :format)
+    # Extract format option if present or infer from file extension
+    format = case Keyword.get(opts, :format) do
+      nil -> 
+        # Try to infer format from file extension
+        ext = Path.extname(path) |> String.downcase()
+        case ext do
+          ".csv" -> :csv
+          ".tsv" -> :tsv
+          ".psv" -> :psv
+          ".ssv" -> :ssv
+          _ -> nil
+        end
+      format -> format
+    end
+    
+    {_, custom_opts} = Keyword.pop(opts, :format)
     
     # Merge options from schema, format, and function call
     options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
@@ -88,8 +102,12 @@ defmodule Delimit.Writer do
     # Extract format option if present
     {format, custom_opts} = Keyword.pop(opts, :format)
     
+    # Handle headers option
+    {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
+    
     # Merge options from schema, format, and function call
-    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
+    merged_opts = if is_nil(headers_opt), do: remaining_opts, else: [{:headers, headers_opt} | remaining_opts]
+    options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
 
     # Get the parser with our options
     parser = get_parser(options)
@@ -104,7 +122,16 @@ defmodule Delimit.Writer do
     # Fast path for small datasets (batch processing)
     if length(data) < 1000 do
       # Standard process for small datasets
-      rows = prepare_data_rows(schema, data)
+      headers_enabled = Keyword.get(options, :headers, false)
+      
+      rows = if headers_enabled do
+        # Add the headers as the first row
+        schema_headers = Schema.headers(schema)
+        [schema_headers | Enum.map(data, fn item -> Schema.to_row(schema, item) end)]
+      else
+        # No headers, just process data rows
+        Enum.map(data, fn item -> Schema.to_row(schema, item) end)
+      end
   
       # Generate the delimited string
       rows
@@ -117,19 +144,42 @@ defmodule Delimit.Writer do
   end
   
   # Optimized version that processes data in chunks and uses iodata more efficiently
-  defp write_string_optimized(%Schema{} = schema, data, _options, parser) do
+  defp write_string_optimized(%Schema{} = schema, data, options, parser) do
     # Process rows in chunks to avoid excessive memory usage
     chunk_size = 1000
     
+    # Check if headers are enabled
+    headers_enabled = Keyword.get(options, :headers, false)
+    
     # Build iodata in chunks
     chunks = 
-      data
-      |> Stream.chunk_every(chunk_size)
-      |> Stream.map(fn chunk -> 
-        rows = prepare_data_rows(schema, chunk)
-        parser.dump_to_iodata(rows)
-      end)
-      |> Enum.to_list()
+      if headers_enabled do
+        # Add headers as the first chunk
+        schema_headers = Schema.headers(schema)
+        headers_chunk = parser.dump_to_iodata([schema_headers])
+        
+        # Process data chunks
+        data_chunks =
+          data
+          |> Stream.chunk_every(chunk_size)
+          |> Stream.map(fn chunk -> 
+            rows = Enum.map(chunk, fn item -> Schema.to_row(schema, item) end)
+            parser.dump_to_iodata(rows)
+          end)
+          |> Enum.to_list()
+          
+        # Combine headers with data chunks
+        [headers_chunk | data_chunks]
+      else
+        # No headers, just process data chunks
+        data
+        |> Stream.chunk_every(chunk_size)
+        |> Stream.map(fn chunk -> 
+          rows = Enum.map(chunk, fn item -> Schema.to_row(schema, item) end)
+          parser.dump_to_iodata(rows)
+        end)
+        |> Enum.to_list()
+      end
     
     # Combine chunks
     IO.iodata_to_binary(chunks)
@@ -161,36 +211,79 @@ defmodule Delimit.Writer do
   """
   @spec stream_to_file(Schema.t(), Path.t(), Enumerable.t(), write_options()) :: :ok
   def stream_to_file(%Schema{} = schema, path, data_stream, opts \\ []) do
-    # Extract format option if present
-    {format, custom_opts} = Keyword.pop(opts, :format)
+    # Extract format option if present or infer from file extension
+    format = case Keyword.get(opts, :format) do
+      nil -> 
+        # Try to infer format from file extension
+        path_string = if is_binary(path), do: path, else: to_string(path)
+        ext = Path.extname(path_string) |> String.downcase()
+        case ext do
+          ".csv" -> :csv
+          ".tsv" -> :tsv
+          ".psv" -> :psv
+          ".ssv" -> :ssv
+          _ -> nil
+        end
+      format -> format
+    end
+    
+    {_, custom_opts} = Keyword.pop(opts, :format)
+    
+    # Extract headers option
+    {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
     
     # Merge options from schema, format, and function call
-    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
+    merged_opts = if is_nil(headers_opt), do: remaining_opts, else: [{:headers, headers_opt} | remaining_opts]
+    options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
 
     # Get the parser with our options
     parser = get_parser(options)
 
-    # Open file for writing
-    {:ok, file} = File.open(path, [:write, :utf8, :delayed_write])
-
-    # Process in chunks to optimize memory usage and improve performance
-    chunk_size = 1000
+    # Create a temporary file first to avoid any issues with streaming
+    path_string = if is_binary(path), do: path, else: to_string(path)
+    temp_path = path_string <> ".tmp"
     
-    # Stream and write in chunks
-    _result =
+    # Ensure temp file is cleaned up
+    on_exit = fn ->
+      File.rm(temp_path)
+    end
+    
+    try do
+      # Open temp file for writing
+      {:ok, file} = File.open(temp_path, [:write, :utf8])
+
+      # Check if headers are enabled
+      headers_enabled = Keyword.get(options, :headers, false)
+      
+      # Write headers if enabled
+      if headers_enabled do
+        schema_headers = Schema.headers(schema)
+        headers_iodata = parser.dump_to_iodata([schema_headers])
+        IO.binwrite(file, headers_iodata)
+      end
+
+      # Process the stream in chunks to avoid loading everything into memory
       data_stream
-      |> Stream.chunk_every(chunk_size)
-      |> Stream.each(fn chunk ->
-        rows = prepare_data_rows(schema, chunk)
-        rows_iodata = parser.dump_to_iodata(rows)
-        IO.binwrite(file, rows_iodata)
+      |> Enum.chunk_every(100)
+      |> Enum.each(fn chunk ->
+        # Convert items to rows
+        rows = Enum.map(chunk, fn item -> Schema.to_row(schema, item) end)
+          
+        # Write to file
+        IO.binwrite(file, parser.dump_to_iodata(rows))
       end)
-      |> Stream.run()
+      
+      # Close the file
+      File.close(file)
+      
+      # Move temp file to final destination
+      File.rename(temp_path, path_string)
 
-    # Close the file
-    File.close(file)
-
-    :ok
+      :ok
+    after
+      # Cleanup temp file if it exists
+      on_exit.()
+    end
   end
 
   # Get a CSV parser with the given options
@@ -232,10 +325,4 @@ defmodule Delimit.Writer do
     end
   end
 
-  # Prepare data rows for writing
-  defp prepare_data_rows(schema, data) do
-    Enum.map(data, fn item ->
-      Schema.to_row(schema, item)
-    end)
-  end
 end

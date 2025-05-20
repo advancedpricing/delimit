@@ -208,17 +208,34 @@ defmodule Delimit do
     # Extract field information for struct and type definitions
     fields =
       schema.fields
-      |> Enum.filter(fn field -> field.type != :embed end)
       |> Enum.map(fn field ->
         default_value = field.opts[:default]
+        
+        # For embedded fields, use the embedded module's struct as default
+        default_value = if field.type == :embed do
+          embed_module = schema.embeds[field.name]
+          struct(embed_module)
+        else
+          default_value
+        end
+        
         {field.name, default_value}
       end)
 
     # Create type specs for each field
     field_type_specs =
-      Enum.map(fields, fn {field_name, _default} ->
-        type_spec = Map.get(field_types, field_name, quote(do: any()))
-        {field_name, type_spec}
+      schema.fields
+      |> Enum.map(fn field ->
+        type_spec = 
+          if field.type == :embed do
+            embed_module = schema.embeds[field.name]
+            quote do
+              unquote(embed_module).t() | nil
+            end
+          else
+            Map.get(field_types, field.name, quote(do: any()))
+          end
+        {field.name, type_spec}
       end)
 
     # Get the module doc or default - ensure it's a string to avoid protocol errors
