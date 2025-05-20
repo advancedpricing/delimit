@@ -115,51 +115,43 @@ def read_string(%Schema{} = schema, string, opts \\ []) when is_binary(string) d
     # Parse directly with NimbleCSV, which handles CSV properly
     parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
-    # Split into lines and apply preprocessing
-    # Handle both \r\n and \n line endings
-    lines = String.split(string, ~r/\r?\n/)
-    
-    # Filter lines through the preprocessing
-    filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
-    
-    # Keep only lines that have content or contain delimiters
-    filtered_lines = Enum.filter(filtered_lines, fn line -> 
-      trimmed = String.trim(line)
-      trimmed != "" || String.contains?(line, delimiter)
-    end)
-      
     # Handle empty input case
-    if filtered_lines == [] do
-      []
-    else
-      # Ensure string ends with LF for proper NimbleCSV parsing
-      adjusted_string = Enum.join(filtered_lines, "\n") <> "\n"
-
-      # Parse all rows
-      all_rows =
-        try do
-          parser.parse_string(adjusted_string, skip_headers: false)
-        rescue
-          _ ->
-            IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
-
-            lenient_parser =
-              Delimit.Parsers.get_parser_with_escape(delimiter, escape)
-
-            lenient_parser.parse_string(adjusted_string, skip_headers: false)
+      if string == "" || string |> String.trim() == "" do
+        []
+      else
+        # Preprocess lines to handle skipping if needed
+        string = if skip_lines > 0 || skip_while_fn do
+          lines = String.split(string, ~r/\r?\n/)
+          filtered_lines = preprocess_lines(lines, skip_lines, skip_while_fn)
+          Enum.join(filtered_lines, "\n")
+        else
+          string
         end
 
-      # Process all rows as data
-      all_rows
-      |> Enum.reject(fn row -> 
-        # Row is empty when it has no elements or only empty strings
-        length(row) == 0
-      end)
-      |> Enum.map(fn row ->
-        # Pass the trim_fields option to the struct creation
-        Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
-      end)
-    end
+        # Parse all rows with NimbleCSV
+        all_rows =
+          try do
+            parser.parse_string(string, skip_headers: false)
+          rescue
+            _ ->
+              IO.puts("Warning: Initial parsing failed, trying with more lenient configuration")
+              lenient_parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
+              lenient_parser.parse_string(string, skip_headers: false)
+          end
+
+        # NimbleCSV will treat a line with just commas differently than a blank line
+        # We want to keep rows that have *any* content, even if just commas for empty fields
+        # but need to filter out totally blank rows
+        all_rows
+        |> Enum.reject(fn row -> 
+          # Only reject completely empty rows (no elements)
+          length(row) == 0
+        end)
+        |> Enum.map(fn row ->
+          # Pass the trim_fields option to the struct creation
+          Schema.to_struct(schema, row, Keyword.take(options, [:trim_fields]))
+        end)
+      end
   end
 end
 
@@ -207,12 +199,6 @@ end
     skip_lines = Keyword.get(options, :skip_lines, 0)
     skip_while_fn = Keyword.get(options, :skip_while)
 
-    # Skip any blank lines that don't contain delimiters
-    skip_empty_fn = fn line -> 
-      trimmed = String.trim(line)
-      trimmed == "" && !String.contains?(line, delimiter)
-    end
-
     # Create parser that doesn't skip any rows
     parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
@@ -221,11 +207,10 @@ end
     |> File.stream!()
     |> maybe_skip_while(skip_while_fn)
     |> maybe_skip_lines(skip_lines)
-    |> Stream.reject(skip_empty_fn)
     |> parser.parse_stream()
     |> Stream.reject(fn row -> 
-      # Row is empty when it has no elements (completely empty row)
-      length(row) == 0
+      # Only reject completely empty rows (no elements)
+      length(row) == 0 
     end)
     |> Stream.map(fn row ->
       # Pass the trim_fields option to the struct creation

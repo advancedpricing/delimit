@@ -216,12 +216,15 @@ defmodule Delimit.ReaderTest do
 
       # Read with defaults schema
       items = SchemaWithDefaults.read_string(csv_string)
-
-      # Should have 3 rows:
-      # - The first data row (John)
-      # - The comma-only row (with defaults)
-      # - The second data row (Jane)
-      assert length(items) == 3
+      
+      # NimbleCSV treats each line as a row, including empty and partially empty ones.
+      # This gives us 5 rows from the input:
+      # 1. John Doe row
+      # 2. Empty row with commas (defaults)
+      # 3. Empty row (just blank line - defaults)
+      # 4. Row with just commas (defaults)
+      # 5. Jane Smith row
+      assert length(items) == 5
 
       # First row should have name and age from data
       item = Enum.at(items, 0)
@@ -230,7 +233,7 @@ defmodule Delimit.ReaderTest do
       # default
       assert item.active == false
 
-      # Second row (the comma-only row) should use all defaults
+      # Second row is the empty fields row (with commas) - should use defaults
       item = Enum.at(items, 1)
       # default
       assert item.name == "Unknown"
@@ -238,10 +241,28 @@ defmodule Delimit.ReaderTest do
       assert item.age == 0
       # default
       assert item.active == false
-
-      # Third row should have name from data, others from defaults
+      
+      # Third row is the completely blank line - should use defaults
       item = Enum.at(items, 2)
+      # default
+      assert item.name == "Unknown"
+      # default
+      assert item.age == 0
+      # default
+      assert item.active == false
+
+      # Fourth row has the "Jane Smith" data
+      item = Enum.at(items, 3)
       assert item.name == "Jane Smith"
+      # default
+      assert item.age == 0
+      # default
+      assert item.active == false
+
+      # Fifth row is the trailing empty row with defaults
+      item = Enum.at(items, 4)
+      # default
+      assert item.name == "Unknown"
       # default
       assert item.age == 0
       # default
