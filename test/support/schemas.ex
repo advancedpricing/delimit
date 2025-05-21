@@ -1,7 +1,7 @@
 defmodule Delimit.TestSupport.Schemas do
   @moduledoc """
   Common test schemas for Delimit tests.
-  
+
   This module contains schema definitions that are used across multiple tests.
   Using these shared schemas helps keep tests consistent and reduces duplication.
   """

@@ -74,31 +74,33 @@ defmodule Delimit.ReaderTest do
           skip_while: fn line -> String.starts_with?(line, "#") end,
           headers: true
         )
-        
+
       # Skip directly using skip_lines (comment lines + header)
-      people_with_skip_lines = FullSchema.read_string(csv_string, skip_lines: 3, headers: false)
-      
+      people_with_skip_lines =
+        FullSchema.read_string(csv_string, skip_lines: 3, headers: false)
+
       # Both approaches should return data
       assert length(people_with_skip_while) > 0
       assert length(people_with_skip_lines) > 0
-      
+
       # Both approaches should give properly structured data
       person_with_skip_while = Enum.at(people_with_skip_while, 0)
       assert person_with_skip_while.first_name == "John"
-      
+
       person_with_skip_lines = Enum.at(people_with_skip_lines, 0)
       assert is_map(person_with_skip_lines)
       assert Map.has_key?(person_with_skip_lines, :first_name)
       assert person_with_skip_lines.first_name == "John"
-      
+
       # Testing specific case: first apply skip_while then skip_lines
-      combined_skip = 
+      combined_skip =
         FullSchema.read_string(csv_string,
           skip_while: fn line -> String.starts_with?(line, "#") end,
-          skip_lines: 1,  # Skip the header line after skipping comments
+          # Skip the header line after skipping comments
+          skip_lines: 1,
           headers: false
         )
-      
+
       assert length(combined_skip) > 0
       assert Enum.at(combined_skip, 0).first_name == "John"
     end
@@ -231,7 +233,7 @@ defmodule Delimit.ReaderTest do
 
       # Read with defaults schema
       items = SchemaWithDefaults.read_string(csv_string)
-      
+
       # NimbleCSV treats each line as a row, including empty and partially empty ones.
       # This gives us 5 rows from the input:
       # 1. John Doe row
@@ -256,7 +258,7 @@ defmodule Delimit.ReaderTest do
       assert item.age == 0
       # default
       assert item.active == false
-      
+
       # Third row is the completely blank line - should use defaults
       item = Enum.at(items, 2)
       # default

@@ -207,34 +207,34 @@ defmodule Delimit do
 
     # Extract field information for struct and type definitions
     fields =
-      schema.fields
-      |> Enum.map(fn field ->
+      Enum.map(schema.fields, fn field ->
         default_value = field.opts[:default]
-        
         # For embedded fields, use the embedded module's struct as default
-        default_value = if field.type == :embed do
-          embed_module = schema.embeds[field.name]
-          struct(embed_module)
-        else
-          default_value
-        end
-        
+        default_value =
+          if field.type == :embed do
+            embed_module = schema.embeds[field.name]
+            struct(embed_module)
+          else
+            default_value
+          end
+
         {field.name, default_value}
       end)
 
     # Create type specs for each field
     field_type_specs =
-      schema.fields
-      |> Enum.map(fn field ->
-        type_spec = 
+      Enum.map(schema.fields, fn field ->
+        type_spec =
           if field.type == :embed do
             embed_module = schema.embeds[field.name]
+
             quote do
               unquote(embed_module).t() | nil
             end
           else
             Map.get(field_types, field.name, quote(do: any()))
           end
+
         {field.name, type_spec}
       end)
 
@@ -284,7 +284,7 @@ defmodule Delimit do
 
           iex> MyApp.Person.read("people.csv")
           [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
-      
+
           iex> MyApp.Person.read("people.tsv", format: :tsv)
           [%MyApp.Person{first_name: "John", last_name: "Doe", age: 42}, ...]
       """
@@ -358,7 +358,7 @@ defmodule Delimit do
           iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
           iex> MyApp.Person.write("people.csv", people)
           :ok
-      
+
           iex> people = [%MyApp.Person{first_name: "John", last_name: "Doe"}]
           iex> MyApp.Person.write("people.psv", people, format: :psv)
           :ok

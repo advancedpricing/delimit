@@ -2,7 +2,10 @@ defmodule Delimit.SchemaTest do
   use ExUnit.Case, async: true
 
   alias Delimit.Schema
-  alias Delimit.TestSupport.Schemas.{SimpleSchema, FullSchema, Address, Customer}
+  alias Delimit.TestSupport.Schemas.Address
+  alias Delimit.TestSupport.Schemas.Customer
+  alias Delimit.TestSupport.Schemas.FullSchema
+  alias Delimit.TestSupport.Schemas.SimpleSchema
 
   describe "schema creation and management" do
     test "creates a new schema" do
@@ -93,11 +96,11 @@ defmodule Delimit.SchemaTest do
       schema = Customer.__delimit_schema__()
 
       headers = Schema.headers(schema)
-      
+
       # Check for main fields
       assert "name" in headers
       assert "contact_email" in headers
-      
+
       # Check for embedded fields with prefixes
       assert "billing_address_street" in headers
       assert "billing_address_city" in headers
@@ -111,11 +114,21 @@ defmodule Delimit.SchemaTest do
       # Use the schema from our defined FullSchema module
       schema = FullSchema.__delimit_schema__()
 
-      struct = Schema.to_struct(schema, ["John", "Doe", "42", "50000.5", "2020-01-15", "true", "Notes"])
+      struct =
+        Schema.to_struct(schema, [
+          "John",
+          "Doe",
+          "42",
+          "50000.5",
+          "2020-01-15",
+          "true",
+          "Notes"
+        ])
+
       assert struct.first_name == "John"
       assert struct.last_name == "Doe"
       assert struct.age == 42
-      assert struct.salary == 50000.5
+      assert struct.salary == 50_000.5
       assert struct.hired_date == ~D[2020-01-15]
       assert struct.active == true
       assert struct.notes == "Notes"
@@ -127,24 +140,31 @@ defmodule Delimit.SchemaTest do
       # Create a proper struct
       person = %FullSchema{
         first_name: "John",
-        last_name: "Doe", 
-        age: 42, 
-        salary: 50000.5,
+        last_name: "Doe",
+        age: 42,
+        salary: 50_000.5,
         hired_date: ~D[2020-01-15],
         active: true,
         notes: "Notes"
       }
-      
+
       row = Schema.to_row(schema, person)
 
       # The row will contain values for all fields in the schema
-      assert Enum.at(row, 0) == "John"  # first_name
-      assert Enum.at(row, 1) == "Doe"   # last_name
-      assert Enum.at(row, 2) == "42"    # age
-      assert Enum.at(row, 3) == "50000.5" # salary
-      assert Enum.at(row, 4) == "2020-01-15" # hired_date
-      assert Enum.at(row, 5) == "true"  # active
-      assert Enum.at(row, 6) == "Notes" # notes
+      # first_name
+      assert Enum.at(row, 0) == "John"
+      # last_name
+      assert Enum.at(row, 1) == "Doe"
+      # age
+      assert Enum.at(row, 2) == "42"
+      # salary
+      assert Enum.at(row, 3) == "50000.5"
+      # hired_date
+      assert Enum.at(row, 4) == "2020-01-15"
+      # active
+      assert Enum.at(row, 5) == "true"
+      # notes
+      assert Enum.at(row, 6) == "Notes"
     end
 
     test "handles nil values" do
@@ -160,16 +180,23 @@ defmodule Delimit.SchemaTest do
         active: nil,
         notes: nil
       }
-      
+
       row = Schema.to_row(schema, person)
 
-      assert Enum.at(row, 0) == "John"  # first_name
-      assert Enum.at(row, 1) == ""      # last_name (nil)
-      assert Enum.at(row, 2) == ""      # age (nil)
-      assert Enum.at(row, 3) == ""      # salary (nil)
-      assert Enum.at(row, 4) == ""      # hired_date (nil)
-      assert Enum.at(row, 5) == ""      # active (nil)
-      assert Enum.at(row, 6) == ""      # notes (nil)
+      # first_name
+      assert Enum.at(row, 0) == "John"
+      # last_name (nil)
+      assert Enum.at(row, 1) == ""
+      # age (nil)
+      assert Enum.at(row, 2) == ""
+      # salary (nil)
+      assert Enum.at(row, 3) == ""
+      # hired_date (nil)
+      assert Enum.at(row, 4) == ""
+      # active (nil)
+      assert Enum.at(row, 5) == ""
+      # notes (nil)
+      assert Enum.at(row, 6) == ""
     end
 
     test "generates headers from schema" do
@@ -196,10 +223,10 @@ defmodule Delimit.SchemaTest do
       assert Schema.type_to_typespec(:time) == quote(do: Time.t())
       assert Schema.type_to_typespec(:datetime) == quote(do: DateTime.t())
       assert Schema.type_to_typespec(:naive_datetime) == quote(do: NaiveDateTime.t())
-      
+
       # List type
       assert Schema.type_to_typespec({:list, :string}) == quote(do: list(String.t()))
-      
+
       # Unknown type defaults to any
       assert Schema.type_to_typespec(:unknown) == quote(do: any())
     end

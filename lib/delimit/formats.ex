@@ -59,7 +59,7 @@ defmodule Delimit.Formats do
 
   @doc """
   Merges format options with custom options.
-  
+
   Format options take precedence over schema defaults but are overridden by
   explicitly provided custom options.
 
@@ -81,25 +81,30 @@ defmodule Delimit.Formats do
   """
   @spec merge_options(Keyword.t(), atom() | nil, Keyword.t()) :: Keyword.t()
   def merge_options(schema_options, format, custom_options) do
-    options = case format do
-      nil -> 
-        Keyword.merge(schema_options, custom_options)
-      format ->
-        format_options = get_options(format)
-        schema_options
-        |> Keyword.merge(format_options)
-        |> Keyword.merge(custom_options)
-    end
-    
+    options =
+      case format do
+        nil ->
+          Keyword.merge(schema_options, custom_options)
+
+        format ->
+          format_options = get_options(format)
+
+          schema_options
+          |> Keyword.merge(format_options)
+          |> Keyword.merge(custom_options)
+      end
+
     # Special handling for format-specific options
-    options = case format do
-      :tsv ->
-        # For TSV, ensure format is preserved
-        Keyword.put_new(options, :delimiter, "\t")
-      _ ->
-        options
-    end
-    
+    options =
+      case format do
+        :tsv ->
+          # For TSV, ensure format is preserved
+          Keyword.put_new(options, :delimiter, "\t")
+
+        _ ->
+          options
+      end
+
     options
   end
 end

@@ -179,7 +179,7 @@ defmodule Delimit.Reader do
           # Pass the trim_fields option and headers to the struct creation
           opts_with_headers =
             if headers_enabled && length(header_row) > 0 do
-              Keyword.merge(Keyword.take(options, [:trim_fields]), headers: header_row)
+              Keyword.put(Keyword.take(options, [:trim_fields]), :headers, header_row)
             else
               Keyword.take(options, [:trim_fields])
             end

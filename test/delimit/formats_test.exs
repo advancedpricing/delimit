@@ -54,10 +54,14 @@ defmodule Delimit.FormatsTest do
 
       merged = Formats.merge_options(schema_opts, format_opts, custom_opts)
 
-      assert merged[:headers] == true # from custom_opts
-      assert merged[:trim_fields] == true # from schema_opts
-      assert merged[:delimiter] == "," # from format_opts
-      assert merged[:escape] == "'" # from custom_opts
+      # from custom_opts
+      assert merged[:headers] == true
+      # from schema_opts
+      assert merged[:trim_fields] == true
+      # from format_opts
+      assert merged[:delimiter] == ","
+      # from custom_opts
+      assert merged[:escape] == "'"
     end
 
     test "handles nil format" do
@@ -66,10 +70,14 @@ defmodule Delimit.FormatsTest do
 
       merged = Formats.merge_options(schema_opts, nil, custom_opts)
 
-      assert merged[:headers] == true # from custom_opts
-      assert merged[:trim_fields] == true # from schema_opts
-      assert merged[:escape] == "'" # from custom_opts
-      refute Keyword.has_key?(merged, :delimiter) # not added because no format
+      # from custom_opts
+      assert merged[:headers] == true
+      # from schema_opts
+      assert merged[:trim_fields] == true
+      # from custom_opts
+      assert merged[:escape] == "'"
+      # not added because no format
+      refute Keyword.has_key?(merged, :delimiter)
     end
   end
 end

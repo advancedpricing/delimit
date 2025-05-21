@@ -86,14 +86,15 @@ defmodule Delimit.IntegrationTest do
       on_exit(fn -> File.rm(output_file) end)
 
       # Stream from file, apply transformations, and write to output
-      stream = test_file
-      |> FullSchema.stream(headers: true)
-      |> Stream.map(fn person ->
-        # 10% salary increase
-        %{person | salary: person.salary * 1.1}
-      end)
-      |> Enum.to_list()
-      
+      stream =
+        test_file
+        |> FullSchema.stream(headers: true)
+        |> Stream.map(fn person ->
+          # 10% salary increase
+          %{person | salary: person.salary * 1.1}
+        end)
+        |> Enum.to_list()
+
       FullSchema.write(output_file, stream, headers: true)
 
       # Read the output to verify

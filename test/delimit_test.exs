@@ -1,5 +1,6 @@
 defmodule DelimitTest do
   use ExUnit.Case, async: true
+
   alias Delimit.TestSupport.Schemas.SimpleSchema
 
   doctest Delimit
@@ -18,7 +19,7 @@ defmodule DelimitTest do
       assert age_field.type == :integer
       assert age_field.opts == []
     end
-    
+
     test "generates typespec and struct correctly" do
       # Verify the struct exists and contains expected fields
       person = %SimpleSchema{name: "John", age: 30, active: true}
