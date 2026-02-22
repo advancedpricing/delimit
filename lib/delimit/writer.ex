@@ -7,6 +7,7 @@ defmodule Delimit.Writer do
   and streaming operations.
   """
 
+  alias Delimit.FixedWidth.Writer
   alias Delimit.Schema
 
   @typedoc """
@@ -58,6 +59,7 @@ defmodule Delimit.Writer do
             ".tsv" -> :tsv
             ".psv" -> :psv
             ".ssv" -> :ssv
+            ".dat" -> :fixed_width
             _ -> nil
           end
 
@@ -67,15 +69,19 @@ defmodule Delimit.Writer do
 
     {_, custom_opts} = Keyword.pop(opts, :format)
 
-    # Merge options from schema, format, and function call
-    options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
+    if format == :fixed_width do
+      Writer.write_file(schema, path, data, custom_opts)
+    else
+      # Merge options from schema, format, and function call
+      options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
-    # Convert data to string using the appropriate parser
-    parser = get_parser(options)
-    csv_string = write_string(schema, data, options, parser)
+      # Convert data to string using the appropriate parser
+      parser = get_parser(options)
+      csv_string = write_string(schema, data, options, parser)
 
-    # Write to file
-    File.write!(path, csv_string)
+      # Write to file
+      File.write!(path, csv_string)
+    end
   end
 
   @doc """
@@ -106,22 +112,26 @@ defmodule Delimit.Writer do
     # Extract format option if present
     {format, custom_opts} = Keyword.pop(opts, :format)
 
-    # Handle headers option
-    {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
+    if format == :fixed_width do
+      Writer.write_string(schema, data, custom_opts)
+    else
+      # Handle headers option
+      {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
 
-    # Merge options from schema, format, and function call
-    merged_opts =
-      if is_nil(headers_opt),
-        do: remaining_opts,
-        else: [{:headers, headers_opt} | remaining_opts]
+      # Merge options from schema, format, and function call
+      merged_opts =
+        if is_nil(headers_opt),
+          do: remaining_opts,
+          else: [{:headers, headers_opt} | remaining_opts]
 
-    options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
+      options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
 
-    # Get the parser with our options
-    parser = get_parser(options)
+      # Get the parser with our options
+      parser = get_parser(options)
 
-    # Call the internal implementation with the parser
-    write_string(schema, data, options, parser)
+      # Call the internal implementation with the parser
+      write_string(schema, data, options, parser)
+    end
   end
 
   # Internal implementation with parser provided
@@ -233,6 +243,7 @@ defmodule Delimit.Writer do
             ".tsv" -> :tsv
             ".psv" -> :psv
             ".ssv" -> :ssv
+            ".dat" -> :fixed_width
             _ -> nil
           end
 
@@ -242,64 +253,68 @@ defmodule Delimit.Writer do
 
     {_, custom_opts} = Keyword.pop(opts, :format)
 
-    # Extract headers option
-    {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
+    if format == :fixed_width do
+      Writer.stream_to_file(schema, path, data_stream, custom_opts)
+    else
+      # Extract headers option
+      {headers_opt, remaining_opts} = Keyword.pop(custom_opts, :headers)
 
-    # Merge options from schema, format, and function call
-    merged_opts =
-      if is_nil(headers_opt),
-        do: remaining_opts,
-        else: [{:headers, headers_opt} | remaining_opts]
+      # Merge options from schema, format, and function call
+      merged_opts =
+        if is_nil(headers_opt),
+          do: remaining_opts,
+          else: [{:headers, headers_opt} | remaining_opts]
 
-    options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
+      options = Delimit.Formats.merge_options(schema.options, format, merged_opts)
 
-    # Get the parser with our options
-    parser = get_parser(options)
+      # Get the parser with our options
+      parser = get_parser(options)
 
-    # Create a temporary file first to avoid any issues with streaming
-    path_string = if is_binary(path), do: path, else: to_string(path)
-    temp_path = path_string <> ".tmp"
+      # Create a temporary file first to avoid any issues with streaming
+      path_string = if is_binary(path), do: path, else: to_string(path)
+      temp_path = path_string <> ".tmp"
 
-    # Ensure temp file is cleaned up
-    on_exit = fn ->
-      File.rm(temp_path)
-    end
-
-    try do
-      # Open temp file for writing
-      {:ok, file} = File.open(temp_path, [:write, :utf8])
-
-      # Check if headers are enabled
-      headers_enabled = Keyword.get(options, :headers, false)
-
-      # Write headers if enabled
-      if headers_enabled do
-        schema_headers = Schema.headers(schema)
-        headers_iodata = parser.dump_to_iodata([schema_headers])
-        IO.binwrite(file, headers_iodata)
+      # Ensure temp file is cleaned up
+      on_exit = fn ->
+        File.rm(temp_path)
       end
 
-      # Process the stream in chunks to avoid loading everything into memory
-      data_stream
-      |> Enum.chunk_every(100)
-      |> Enum.each(fn chunk ->
-        # Convert items to rows
-        rows = Enum.map(chunk, fn item -> Schema.to_row(schema, item) end)
+      try do
+        # Open temp file for writing
+        {:ok, file} = File.open(temp_path, [:write, :utf8])
 
-        # Write to file
-        IO.binwrite(file, parser.dump_to_iodata(rows))
-      end)
+        # Check if headers are enabled
+        headers_enabled = Keyword.get(options, :headers, false)
 
-      # Close the file
-      File.close(file)
+        # Write headers if enabled
+        if headers_enabled do
+          schema_headers = Schema.headers(schema)
+          headers_iodata = parser.dump_to_iodata([schema_headers])
+          IO.binwrite(file, headers_iodata)
+        end
 
-      # Move temp file to final destination
-      File.rename(temp_path, path_string)
+        # Process the stream in chunks to avoid loading everything into memory
+        data_stream
+        |> Enum.chunk_every(100)
+        |> Enum.each(fn chunk ->
+          # Convert items to rows
+          rows = Enum.map(chunk, fn item -> Schema.to_row(schema, item) end)
 
-      :ok
-    after
-      # Cleanup temp file if it exists
-      on_exit.()
+          # Write to file
+          IO.binwrite(file, parser.dump_to_iodata(rows))
+        end)
+
+        # Close the file
+        File.close(file)
+
+        # Move temp file to final destination
+        File.rename(temp_path, path_string)
+
+        :ok
+      after
+        # Cleanup temp file if it exists
+        on_exit.()
+      end
     end
   end
 

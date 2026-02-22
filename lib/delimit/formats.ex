@@ -36,6 +36,7 @@ defmodule Delimit.Formats do
       :tsv -> [delimiter: "\t", escape: "\""]
       :psv -> [delimiter: "|", escape: "\""]
       :ssv -> [delimiter: ";", escape: "\""]
+      :fixed_width -> [line_ending: "\r\n"]
       _ -> raise ArgumentError, "Unsupported format: #{inspect(format)}"
     end
   end
@@ -54,7 +55,7 @@ defmodule Delimit.Formats do
   """
   @spec supported_formats() :: [atom()]
   def supported_formats do
-    [:csv, :tsv, :psv, :ssv]
+    [:csv, :tsv, :psv, :ssv, :fixed_width]
   end
 
   @doc """

@@ -42,7 +42,7 @@ defmodule Delimit.FormatsTest do
   describe "supported_formats/0" do
     test "returns list of supported formats" do
       formats = Formats.supported_formats()
-      assert Enum.sort(formats) == Enum.sort([:csv, :tsv, :psv, :ssv])
+      assert Enum.sort(formats) == Enum.sort([:csv, :tsv, :psv, :ssv, :fixed_width])
     end
   end
 

@@ -525,6 +525,148 @@ defmodule Delimit.Schema do
   end
 
   @doc """
+  Validates that all fields (including flattened embed fields) have a positive integer `width:` option.
+
+  Raises `ArgumentError` if any field is missing `width:` or has a non-positive width.
+  """
+  @spec validate_fixed_width!(t()) :: :ok
+  def validate_fixed_width!(%__MODULE__{} = schema) do
+    all_fields = collect_all_fields(schema)
+
+    Enum.each(all_fields, fn {display_name, field} ->
+      width = Keyword.get(field.opts, :width)
+
+      cond do
+        is_nil(width) ->
+          raise ArgumentError,
+                "Fixed-width format requires a :width option on all fields, " <>
+                  "but field #{inspect(display_name)} is missing :width"
+
+        not is_integer(width) or width <= 0 ->
+          raise ArgumentError,
+                "Fixed-width format requires a positive integer :width, " <>
+                  "but field #{inspect(display_name)} has width: #{inspect(width)}"
+
+        true ->
+          :ok
+      end
+    end)
+
+    :ok
+  end
+
+  @doc """
+  Returns a flat list of `{display_name, Field.t()}` tuples for all leaf fields,
+  including fields from flattened embeds.
+
+  For regular fields, `display_name` is the field name atom.
+  For embed fields, `display_name` includes the embed prefix (e.g., `:billing_address_street`).
+  """
+  @spec collect_all_fields(t()) :: [{atom(), Field.t()}]
+  def collect_all_fields(%__MODULE__{} = schema) do
+    regular_fields =
+      schema.fields
+      |> Enum.filter(fn field -> field.type != :embed end)
+      |> Enum.map(fn field -> {field.name, field} end)
+
+    embed_fields =
+      schema
+      |> get_embeds()
+      |> Enum.flat_map(fn embed_field ->
+        embed_module = schema.embeds[embed_field.name]
+        embed_schema = embed_module.__delimit_schema__()
+        prefix = get_embed_prefix(embed_field)
+
+        embed_schema.fields
+        |> Enum.filter(fn f -> f.type != :embed end)
+        |> Enum.map(fn field ->
+          display_name = String.to_atom(prefix <> Atom.to_string(field.name))
+          {display_name, field}
+        end)
+      end)
+
+    regular_fields ++ embed_fields
+  end
+
+  @doc """
+  Returns a list of `{Field.t(), start_offset, width}` tuples using cumulative offsets.
+
+  Used by the fixed-width reader to slice lines into field values.
+  """
+  @spec field_widths(t()) :: [{Field.t(), non_neg_integer(), pos_integer()}]
+  def field_widths(%__MODULE__{} = schema) do
+    all_fields = collect_all_fields(schema)
+
+    {result, _offset} =
+      Enum.map_reduce(all_fields, 0, fn {_display_name, field}, offset ->
+        width = Keyword.fetch!(field.opts, :width)
+        {{field, offset, width}, offset + width}
+      end)
+
+    result
+  end
+
+  @doc """
+  Builds a struct (including embeds) from a flat list of raw string values.
+
+  This is needed for fixed-width format where fields are position-based rather than
+  header-based. Uses `Field.parse_value/2` for each value.
+  """
+  @spec to_struct_from_flat_values(t(), [String.t() | nil], Keyword.t()) :: struct()
+  def to_struct_from_flat_values(%__MODULE__{} = schema, values, opts \\ []) do
+    struct = struct(schema.module)
+
+    # Get non-embed fields
+    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+
+    # Process regular fields positionally
+    {struct_with_fields, remaining_values} =
+      Enum.reduce(regular_fields, {struct, values}, fn field, {acc, [raw_value | rest]} ->
+        raw_value = if raw_value == "", do: nil, else: raw_value
+
+        raw_value =
+          if is_nil(raw_value) && Keyword.has_key?(field.opts, :default),
+            do: Keyword.get(field.opts, :default),
+            else: raw_value
+
+        field_with_opts = %{
+          field
+          | opts: Keyword.merge(field.opts, Keyword.take(opts, [:trim_fields]))
+        }
+
+        parsed_value = Field.parse_value(raw_value, field_with_opts)
+        {Map.put(acc, field.name, parsed_value), rest}
+      end)
+
+    # Process embed fields
+    embed_fields = get_embeds(schema)
+
+    {struct_with_embeds, _remaining} =
+      Enum.reduce(embed_fields, {struct_with_fields, remaining_values}, fn embed_field,
+                                                                           {acc, vals} ->
+        embed_module = schema.embeds[embed_field.name]
+        embed_schema = embed_module.__delimit_schema__()
+        embed_regular_fields = Enum.filter(embed_schema.fields, fn f -> f.type != :embed end)
+        field_count = length(embed_regular_fields)
+
+        {embed_values, rest} = Enum.split(vals, field_count)
+
+        # Pad with nils if we ran out of values
+        embed_values =
+          if length(embed_values) < field_count do
+            embed_values ++ List.duplicate(nil, field_count - length(embed_values))
+          else
+            embed_values
+          end
+
+        embed_struct = to_struct_from_flat_values(embed_schema, embed_values, opts)
+        {Map.put(acc, embed_field.name, embed_struct), rest}
+      end)
+
+    struct_with_embeds
+  end
+
+  @doc """
   Converts a field type to an Elixir typespec.
 
   This function is used to convert field types to proper Elixir typespecs
