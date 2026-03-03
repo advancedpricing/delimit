@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0 (2026-03-03)
+
+### Features
+
+- Add fixed-width format support (`:fixed_width`)
+
 ## 0.2.0 (2025-05-21)
 
 ### Fixes

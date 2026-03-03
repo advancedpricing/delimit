@@ -4,7 +4,7 @@ defmodule Delimit.MixProject do
   def project do
     [
       app: :delimit,
-      version: "0.2.0",
+      version: "0.3.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -42,7 +42,7 @@ defmodule Delimit.MixProject do
   end
 
   defp description do
-    "Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, SSV) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities."
+    "Schema-based library for reading and writing delimited (CSV, TSV, PSV, SSV) and fixed-width data files in Elixir. Provides strong typing with structs, streaming, embedded schemas, and custom transformations."
   end
 
   defp docs do

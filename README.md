@@ -3,7 +3,7 @@
 [![Hex.pm Version](https://img.shields.io/hexpm/v/delimit.svg)](https://hex.pm/packages/delimit)
 [![Hex.pm License](https://img.shields.io/hexpm/l/delimit.svg)](https://github.com/jcowgar/delimit/blob/main/LICENSE)
 
-Delimit is a powerful yet elegant library for reading and writing delimited data files (CSV, TSV, PSV, SSV) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities. By defining the structure of your data, Delimit enables type-safe parsing and generation with minimal boilerplate code.
+Delimit is a powerful yet elegant library for reading and writing delimited and fixed-width data files (CSV, TSV, PSV, SSV, Fixed-Width) in Elixir. Inspired by Ecto, it allows you to define schemas for your delimited data, providing strong typing with structs, validation, and transformation capabilities. By defining the structure of your data, Delimit enables type-safe parsing and generation with minimal boilerplate code.
 
 ## Features
 
@@ -11,6 +11,7 @@ Delimit is a powerful yet elegant library for reading and writing delimited data
 - **Strong typing with structs**: Convert between string values and proper Elixir types in type-safe structs
 - **Full TypeSpecs**: Automatically generated type specifications for your schemas
 - **Streaming support**: Process large files efficiently with Elixir streams
+- **Fixed-width format**: Read and write fixed-width data with configurable field widths, padding, and justification
 - **Customizable parsing**: Configure delimiters, headers, type conversion, and more
 - **Embedded schemas**: Nest schemas for complex data structures
 - **Custom transformations**: Add your own read/write functions for special data formats
@@ -23,7 +24,7 @@ Add `delimit` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:delimit, "~> 0.1.0"}
+    {:delimit, "~> 0.3.0"}
   ]
 end
 ```
@@ -260,6 +261,53 @@ Supported formats include:
 - `:tsv` - Tab-separated values with double-quote escaping
 - `:psv` - Pipe-separated values with double-quote escaping
 - `:ssv` - Semi-colon-separated values with double-quote escaping
+- `:fixed_width` - Fixed-width fields defined by character width (see below)
+
+### Fixed-Width Format
+
+Fixed-width format uses character widths instead of delimiters. Each field occupies a specific number of characters per line. Define fields with the `:width` option:
+
+```elixir
+defmodule MyApp.LegacyRecord do
+  use Delimit
+
+  layout do
+    field :id, :integer, width: 8, justify: :right, pad_char: "0"
+    field :name, :string, width: 20
+    field :amount, :float, width: 12, justify: :right
+    field :active, :boolean, width: 5
+  end
+end
+```
+
+Reading and writing works the same as delimited formats:
+
+```elixir
+# Read from a file
+records = MyApp.LegacyRecord.read("data.dat", format: :fixed_width)
+
+# Read from a string
+data = "00000001John Doe                 50000.00true "
+records = MyApp.LegacyRecord.read_string(data, format: :fixed_width)
+
+# Write to a file
+:ok = MyApp.LegacyRecord.write("output.dat", records, format: :fixed_width)
+
+# Stream support
+MyApp.LegacyRecord.stream("large_file.dat", format: :fixed_width)
+|> Stream.filter(fn r -> r.active end)
+|> Enum.to_list()
+```
+
+#### Fixed-Width Field Options
+
+| Option       | Description                                      | Default |
+| ------------ | ------------------------------------------------ | ------- |
+| `:width`     | Number of characters the field occupies (required)| —       |
+| `:justify`   | `:left` or `:right` justification when writing   | `:left` |
+| `:pad_char`  | Character used to pad shorter values              | `" "`   |
+
+Fixed-width schemas also support embedded schemas — each embedded field must also have `:width` defined on all of its fields.
 
 ### Parser Configuration Options
 
