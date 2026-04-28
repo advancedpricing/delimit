@@ -438,5 +438,35 @@ defmodule Delimit.ReaderTest do
       assert Enum.at(result, 1).first_name == "JANE"
       assert Enum.at(result, 2).first_name == "BOB"
     end
+
+    test "streams headerless file: first row is data, not silently dropped" do
+      # Regression: stream_file used to call NimbleCSV.parse_stream/1 without
+      # passing skip_headers, which defaults to true — silently dropping the
+      # first data row in headerless files. With headers: false, every line
+      # must be returned.
+      no_header =
+        "John,Doe,30,50000.50,2020-01-15,true,Good employee\r\n" <>
+          "Jane,Smith,28,55000.75,2019-05-20,true,\r\n" <>
+          "Bob,Johnson,45,75000.00,2015-11-10,false,On probation"
+
+      test_file = Helpers.create_temp_file(no_header)
+      result = test_file |> FullSchema.stream(headers: false) |> Enum.to_list()
+
+      assert length(result) == 3
+      assert Enum.at(result, 0).first_name == "John"
+      assert Enum.at(result, 1).first_name == "Jane"
+      assert Enum.at(result, 2).first_name == "Bob"
+    end
+
+    test "streams headerless single-row file: row is parsed" do
+      # Regression: stream of a 1-row headerless file used to return zero
+      # records because NimbleCSV's default skip_headers: true ate the only line.
+      one_row = "John,Doe,30,50000.50,2020-01-15,true,Good employee"
+      test_file = Helpers.create_temp_file(one_row)
+
+      [person] = test_file |> FullSchema.stream(headers: false) |> Enum.to_list()
+      assert person.first_name == "John"
+      assert person.age == 30
+    end
   end
 end

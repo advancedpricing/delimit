@@ -245,6 +245,7 @@ defmodule Delimit.Reader do
       escape = Keyword.get(options, :escape, "\"")
       skip_lines = Keyword.get(options, :skip_lines, 0)
       skip_while_fn = Keyword.get(options, :skip_while)
+      headers_enabled = Keyword.get(options, :headers, false)
 
       # Create parser that doesn't skip any rows
       parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
@@ -254,7 +255,7 @@ defmodule Delimit.Reader do
       |> File.stream!()
       |> maybe_skip_while(skip_while_fn)
       |> maybe_skip_lines(skip_lines)
-      |> parser.parse_stream()
+      |> parser.parse_stream(skip_headers: headers_enabled)
       |> Stream.reject(fn row ->
         # Only reject completely empty rows (no elements)
         length(row) == 0

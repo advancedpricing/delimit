@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.1 (2026-04-28)
+
+### Bug Fixes
+
+- `stream/2` was silently dropping the first data row in headerless files.
+  The streaming path called `NimbleCSV.parse_stream/1` without forwarding
+  the `:headers` option, so NimbleCSV's default `skip_headers: true` ate
+  the first line. Now `headers: false` (or unset) preserves every row,
+  and `headers: true` skips the first row — matching `read_string/2`.
+
 ## 0.4.0 (2026-04-28)
 
 ### Features
