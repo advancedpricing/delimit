@@ -414,6 +414,62 @@ defmodule Delimit do
       def stream_to_file(path, data_stream, opts \\ []) do
         Delimit.Writer.stream_to_file(__delimit_schema__(), path, data_stream, opts)
       end
+
+      @doc """
+      Returns a stable string encoding of `struct` based on this schema.
+
+      The encoding is deterministic for given struct content: fields appear
+      in schema definition order, encoded as they would be written to a file
+      (using configured `format:` / `formats:` / `write_fn`). `nil` values
+      encode as the empty string. Embedded schemas contribute their own
+      canonical encoding recursively. Derived field types (`:row_hash`,
+      `:raw_row`) are skipped.
+
+      ## Options
+
+        * `:delimiter` — separator between encoded field values. Defaults
+          to ASCII Unit Separator (0x1F) for unambiguous encoding. Use
+          `delimiter: "|"` if you want a human-readable form.
+
+      ## Examples
+
+          iex> %MyApp.Person{first_name: "Alice", age: 30}
+          ...> |> MyApp.Person.canonical_string()
+          "Alice\\u001f30"
+
+          iex> %MyApp.Person{first_name: "Alice", age: 30}
+          ...> |> MyApp.Person.canonical_string(delimiter: "|")
+          "Alice|30"
+      """
+      @spec canonical_string(t(), Keyword.t()) :: String.t()
+      def canonical_string(struct, opts \\ []) do
+        Delimit.Schema.canonical_string(__delimit_schema__(), struct, opts)
+      end
+
+      @doc """
+      Returns a binary cryptographic hash of `struct`'s canonical encoding.
+
+      Equivalent to `:crypto.hash(algorithm, canonical_string(struct))`,
+      with optional truncation. Used as the foundation for the `:row_hash`
+      derived field type.
+
+      ## Options
+
+        * `:algorithm` — hash algorithm. Defaults to `:sha256`. Accepts any
+          algorithm supported by `:crypto.hash/2`.
+        * `:truncate` — number of bytes to truncate the hash to. Defaults to
+          `16`. Pass `nil` to return the full hash.
+
+      ## Examples
+
+          iex> %MyApp.Person{first_name: "Alice", age: 30}
+          ...> |> MyApp.Person.row_hash()
+          <<_::128>>
+      """
+      @spec row_hash(t(), Keyword.t()) :: binary()
+      def row_hash(struct, opts \\ []) do
+        Delimit.Schema.row_hash(__delimit_schema__(), struct, opts)
+      end
     end
   end
 end

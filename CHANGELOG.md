@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.4.0 (2026-04-28)
+
+### Features
+
+- Add `formats:` option for `:date` and `:datetime` fields. Tries each
+  format in order on read; the first to parse successfully wins. Useful
+  for files that mix date formats (e.g. mostly `M/D/YYYY` with occasional
+  `YYYY-MM-DD`). Mutually exclusive with `format:`. Writing uses the
+  first entry in the list.
+- Add `Module.canonical_string/2` (and `Delimit.Schema.canonical_string/3`):
+  generate a stable, deterministic string encoding of a struct based on
+  its schema. Uses ASCII Unit Separator as the default delimiter.
+- Add `Module.row_hash/2` (and `Delimit.Schema.row_hash/3`): compute a
+  cryptographic hash of a struct's canonical encoding. Defaults to SHA-256
+  truncated to 16 bytes.
+- Add `:row_hash` derived field type. Declared in the layout, populated
+  automatically on read with the hash of the row's non-derived fields.
+  Skipped on write. Supports `algorithm:` and `truncate:` options.
+- Add `:raw_row` derived field type. Captures the row as a list of strings
+  before type coercion. Useful for debugging and audit trails. Skipped
+  on write.
+
 ## 0.3.0 (2026-03-03)
 
 ### Features

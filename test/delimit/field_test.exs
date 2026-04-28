@@ -152,4 +152,91 @@ defmodule Delimit.FieldTest do
       assert Field.to_string("test", field) == "EXPORTED: test"
     end
   end
+
+  describe "date formats: fallback list" do
+    test "first format matches → returns parsed date" do
+      field = Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}", "{YYYY}-{0M}-{0D}"])
+      assert Field.parse_value("3/15/2024", field) == ~D[2024-03-15]
+    end
+
+    test "second format matches → returns parsed date" do
+      field = Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}", "{YYYY}-{0M}-{0D}"])
+      assert Field.parse_value("2024-03-15", field) == ~D[2024-03-15]
+    end
+
+    test "no format matches → returns nil (consistent with single-format failure)" do
+      field = Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}", "{YYYY}-{0M}-{0D}"])
+      assert Field.parse_value("not-a-date", field) == nil
+    end
+
+    test "formats: tries each in order until one succeeds" do
+      # First format would fail, second would succeed; verify second wins.
+      field = Field.new(:dob, :date, formats: ["{0M}/{0D}/{YYYY}", "{M}/{D}/{YYYY}"])
+      # "3/15/2024" requires {M}/{D}/{YYYY} (single-digit month), not {0M}/{0D}/{YYYY}.
+      assert Field.parse_value("3/15/2024", field) == ~D[2024-03-15]
+    end
+
+    test "empty value with nil_on_empty: true → nil regardless of formats" do
+      field = Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}"])
+      assert Field.parse_value("", field) == nil
+    end
+
+    test "single format: still works (backward compatibility)" do
+      field = Field.new(:dob, :date, format: "{M}/{D}/{YYYY}")
+      assert Field.parse_value("3/15/2024", field) == ~D[2024-03-15]
+      assert Field.parse_value("not-a-date", field) == nil
+    end
+
+    test "format: and formats: together raises at field creation" do
+      assert_raise ArgumentError, ~r/mutually exclusive/, fn ->
+        Field.new(:dob, :date, format: "{M}/{D}/{YYYY}", formats: ["{M}/{D}/{YYYY}"])
+      end
+    end
+
+    test "formats: on a non-date field raises" do
+      assert_raise ArgumentError, ~r/only supported for :date and :datetime/, fn ->
+        Field.new(:name, :string, formats: ["%Y"])
+      end
+    end
+
+    test "empty formats: list raises" do
+      assert_raise ArgumentError, ~r/at least one/, fn ->
+        Field.new(:dob, :date, formats: [])
+      end
+    end
+
+    test "non-string entries in formats: raises" do
+      assert_raise ArgumentError, ~r/must be a string/, fn ->
+        Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}", 123])
+      end
+    end
+
+    test "datetime fields support formats: too" do
+      field =
+        Field.new(:ts, :datetime, formats: ["{M}/{D}/{YYYY} {h24}:{m}:{s}", "{ISO:Extended}"])
+
+      slash_format_dt = Field.parse_value("3/15/2024 14:30:00", field)
+      assert %DateTime{} = slash_format_dt
+      assert slash_format_dt.year == 2024
+      assert slash_format_dt.month == 3
+      assert slash_format_dt.day == 15
+      assert slash_format_dt.hour == 14
+
+      iso_dt = Field.parse_value("2024-03-15T14:30:00Z", field)
+      assert %DateTime{} = iso_dt
+      assert iso_dt.year == 2024
+    end
+
+    test "writing uses the first entry of formats:" do
+      field = Field.new(:dob, :date, formats: ["{M}/{D}/{YYYY}", "{YYYY}-{0M}-{0D}"])
+      assert Field.to_string(~D[2024-03-15], field) == "3/15/2024"
+    end
+
+    test "writing with format: still works alongside read formats:" do
+      # When both format: and formats: would conflict, field creation rejects them.
+      # When only formats: is given, write uses formats[0].
+      field = Field.new(:dob, :date, formats: ["{0M}-{0D}-{YYYY}"])
+      assert Field.to_string(~D[2024-03-15], field) == "03-15-2024"
+    end
+  end
 end

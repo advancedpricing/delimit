@@ -156,6 +156,10 @@ field :email, :string, label: "contact_email"
 # Format for date/datetime fields (using Timex format patterns)
 field :birthday, :date, format: "{0M}/{0D}/{YYYY}"
 
+# Multiple formats — tries each in order, first to parse wins (useful for
+# files with mixed formats). Writing uses the first entry.
+field :birthday, :date, formats: ["{M}/{D}/{YYYY}", "{YYYY}-{0M}-{0D}"]
+
 # Convert empty strings to nil
 field :notes, :string, nil_on_empty: true
 
@@ -361,6 +365,90 @@ people = MyApp.Person.read("people.csv",
   headers: true
 )
 ```
+
+### Derived Field Types
+
+Delimit supports two derived field types that are populated automatically
+during parsing rather than being read from a column. Both are skipped on
+write and do not consume input columns.
+
+#### `:row_hash` — Stable cryptographic hash per row
+
+Useful for change-detection patterns, dedup-on-import flows, and audit
+trails. The hash is computed from the canonical encoding of all
+non-derived fields in schema order.
+
+```elixir
+defmodule MyApp.Eligibility do
+  use Delimit
+
+  layout do
+    field :member_id, :string
+    field :first_name, :string
+    field :last_name, :string
+    field :effective_date, :date
+
+    # Hash populated automatically on read; never written.
+    field :row_hash, :row_hash, algorithm: :sha256, truncate: 16
+  end
+end
+
+[record | _] = MyApp.Eligibility.read("file.psv", format: :psv)
+record.row_hash
+# => <<16-byte binary>>
+
+# Two structs with identical fields produce identical hashes
+hash_a = MyApp.Eligibility.row_hash(record)
+hash_b = MyApp.Eligibility.row_hash(%{record | first_name: record.first_name})
+hash_a == hash_b  # => true
+```
+
+Options:
+- `:algorithm` — any algorithm supported by `:crypto.hash/2`
+  (default `:sha256`)
+- `:truncate` — number of bytes to truncate to (default `16`, set `nil`
+  to disable truncation)
+
+#### `:raw_row` — Captured untyped input
+
+Captures the row as a list of strings before any type coercion or
+`read_fn` is applied. Useful for error reporting, debugging, and audit
+trails.
+
+```elixir
+layout do
+  field :name, :string
+  field :age, :integer
+  field :raw, :raw_row
+end
+
+[record] = MyApp.Person.read_string("alice|30", format: :psv)
+record.raw  # => ["alice", "30"]
+record.age  # => 30
+```
+
+#### Canonical encoding and row hashing for any schema
+
+Every Delimit schema gets `canonical_string/2` and `row_hash/2` automatically:
+
+```elixir
+person = %MyApp.Person{first_name: "Alice", age: 30}
+
+# Stable string encoding (default delimiter is ASCII Unit Separator)
+MyApp.Person.canonical_string(person)
+# => "Alice30"
+
+# Or use a readable delimiter
+MyApp.Person.canonical_string(person, delimiter: "|")
+# => "Alice|30"
+
+# Hash the canonical encoding
+MyApp.Person.row_hash(person)
+# => <<16-byte binary>>
+```
+
+These are useful even without declaring `:row_hash` as a field — for ad-hoc
+comparison, logging, or building diff tooling.
 
 ## License
 

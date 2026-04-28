@@ -226,7 +226,9 @@ defmodule Delimit.Schema do
     # Process embedded fields
     struct_with_embeds = process_embeds(schema, row, headers, struct_with_fields, nil, opts)
 
-    struct_with_embeds
+    # Populate derived fields (`:row_hash`, `:raw_row`) — must run last so
+    # they have access to all parsed values.
+    populate_derived(schema, struct_with_embeds, row)
   end
 
   @doc """
@@ -253,8 +255,13 @@ defmodule Delimit.Schema do
 
   # Process regular fields
   defp process_fields(%__MODULE__{} = schema, row, headers, struct, _header_positions, opts) do
-    # Get non-embed fields
-    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+    # Non-embed, non-derived fields participate in positional/header column mapping.
+    # Derived fields (`:row_hash`, `:raw_row`) are populated separately, see
+    # populate_derived/3.
+    regular_fields =
+      Enum.filter(schema.fields, fn field ->
+        field.type != :embed and not Field.derived?(field)
+      end)
 
     # Process each field
     regular_fields
@@ -298,6 +305,41 @@ defmodule Delimit.Schema do
 
       # Add to accumulator
       Map.put(acc, field.name, parsed_value)
+    end)
+  end
+
+  # Populate derived field values (`:row_hash`, `:raw_row`) on a parsed struct.
+  # Called after regular and embed fields have been populated so the canonical
+  # encoding can read their values from the struct.
+  @spec populate_derived(t(), struct() | map(), [String.t()]) :: struct() | map()
+  def populate_derived(%__MODULE__{} = schema, struct_or_map, row) do
+    Enum.reduce(schema.fields, struct_or_map, fn field, acc ->
+      case field.type do
+        :row_hash ->
+          algorithm = Keyword.get(field.opts, :algorithm, :sha256)
+          truncate = Keyword.get(field.opts, :truncate, 16)
+          hash = row_hash(schema, acc, algorithm: algorithm, truncate: truncate)
+          Map.put(acc, field.name, hash)
+
+        :raw_row ->
+          Map.put(acc, field.name, row)
+
+        :embed ->
+          # Recurse into embeds. The row passed to the embed is the same row
+          # — embeds with derived fields are an unusual but supported case.
+          embed_module = schema.embeds[field.name]
+          embed_schema = embed_module.__delimit_schema__()
+          embed_value = Map.get(acc, field.name)
+
+          if is_nil(embed_value) do
+            acc
+          else
+            Map.put(acc, field.name, populate_derived(embed_schema, embed_value, row))
+          end
+
+        _ ->
+          acc
+      end
     end)
   end
 
@@ -409,11 +451,12 @@ defmodule Delimit.Schema do
   """
   @spec to_row(t(), struct() | map()) :: [String.t()]
   def to_row(%__MODULE__{} = schema, struct_or_map) do
-    # Debug statements removed for production
-    # IO.inspect(struct_or_map, label: "Converting struct to row")
-
-    # Get regular fields (no embeds)
-    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+    # Get regular fields (no embeds, no derived). Derived fields like
+    # :row_hash and :raw_row are computed from input and are never written.
+    regular_fields =
+      Enum.filter(schema.fields, fn field ->
+        field.type != :embed and not Field.derived?(field)
+      end)
 
     # Get all embedded fields
     embed_fields = get_embeds(schema)
@@ -434,13 +477,22 @@ defmodule Delimit.Schema do
           # If the embedded struct is nil, add empty values for all its fields
           embed_module = schema.embeds[embed_field.name]
           embed_schema = embed_module.__delimit_schema__()
-          embed_fields = Enum.filter(embed_schema.fields, fn f -> f.type != :embed end)
+
+          embed_fields =
+            Enum.filter(embed_schema.fields, fn f ->
+              f.type != :embed and not Field.derived?(f)
+            end)
+
           List.duplicate("", length(embed_fields))
         else
           # Get the embedded schema and its fields
           embed_module = schema.embeds[embed_field.name]
           embed_schema = embed_module.__delimit_schema__()
-          embed_fields = Enum.filter(embed_schema.fields, fn f -> f.type != :embed end)
+
+          embed_fields =
+            Enum.filter(embed_schema.fields, fn f ->
+              f.type != :embed and not Field.derived?(f)
+            end)
 
           # Debug statements removed for production
           # IO.inspect(embed_struct, label: "Embedded struct #{embed_field.name}")
@@ -492,10 +544,13 @@ defmodule Delimit.Schema do
   """
   @spec headers(t(), String.t() | nil) :: [String.t()]
   def headers(%__MODULE__{} = schema, prefix \\ nil) do
-    # Get regular field headers
+    # Get regular field headers (skip embeds and derived fields — derived
+    # fields are not written to files, so they don't need column headers)
     regular_headers =
       schema.fields
-      |> Enum.filter(fn field -> field.type != :embed end)
+      |> Enum.filter(fn field ->
+        field.type != :embed and not Field.derived?(field)
+      end)
       |> Enum.map(fn field ->
         # For regular fields, use the field name or label
         header = field.opts[:label] || Atom.to_string(field.name)
@@ -522,6 +577,126 @@ defmodule Delimit.Schema do
 
     # Combine regular and embedded headers
     regular_headers ++ embed_headers
+  end
+
+  @doc """
+  Default delimiter used by `canonical_string/3` and `row_hash/3`.
+
+  ASCII Unit Separator (0x1F) — chosen because it is highly unlikely to
+  appear in real-world delimited file content, so the canonical encoding
+  remains unambiguous regardless of the file's actual delimiter.
+  """
+  @canonical_delimiter <<0x1F>>
+  def canonical_delimiter, do: @canonical_delimiter
+
+  @doc """
+  Returns a stable string encoding of a struct based on its schema.
+
+  The encoding is deterministic for a given schema and struct content:
+
+    * Fields appear in schema definition order.
+    * Each field's value is encoded as it would be written to a file
+      (using configured `format:` / `formats:` / `write_fn`, etc.).
+    * `nil` values encode as the empty string.
+    * Embedded schemas contribute their own canonical encoding recursively
+      (in their declared schema order, no prefix).
+    * Derived field types (`:row_hash`, `:raw_row`) are skipped — their
+      values come from the parsed source row, not from canonical state.
+
+  ## Options
+
+    * `:delimiter` — the separator between encoded field values.
+      Defaults to `Delimit.Schema.canonical_delimiter/0`
+      (ASCII Unit Separator). Use `delimiter: "|"` if you want a
+      readable form (at the cost of ambiguity if any field value
+      contains the chosen delimiter).
+
+  ## Example
+
+      iex> %MyApp.Person{first_name: "Alice", age: 30}
+      ...> |> MyApp.Person.canonical_string()
+      "Alice<US>30"
+
+  """
+  @spec canonical_string(t(), struct() | map(), Keyword.t()) :: String.t()
+  def canonical_string(%__MODULE__{} = schema, struct_or_map, opts \\ []) do
+    delimiter = Keyword.get(opts, :delimiter, @canonical_delimiter)
+    schema |> canonical_field_values(struct_or_map) |> Enum.join(delimiter)
+  end
+
+  @doc """
+  Returns a binary cryptographic hash of a struct's canonical encoding.
+
+  ## Options
+
+    * `:algorithm` — hash algorithm passed to `:crypto.hash/2`. Default `:sha256`.
+    * `:truncate` — bytes to truncate to. Default `16`. `nil` means no truncation.
+
+  See `canonical_string/3` for the encoding rules.
+  """
+  @spec row_hash(t(), struct() | map(), Keyword.t()) :: binary()
+  def row_hash(%__MODULE__{} = schema, struct_or_map, opts \\ []) do
+    algorithm = Keyword.get(opts, :algorithm, :sha256)
+    truncate = Keyword.get(opts, :truncate, 16)
+    canonical = canonical_string(schema, struct_or_map)
+
+    digest = :crypto.hash(algorithm, canonical)
+
+    case truncate do
+      nil -> digest
+      n when is_integer(n) and n > 0 -> binary_part(digest, 0, min(n, byte_size(digest)))
+    end
+  end
+
+  # Returns the list of canonical-form field values for a struct/map. Used
+  # internally by `canonical_string/3` and `row_hash/3`. Skips derived fields
+  # (`:row_hash`, `:raw_row`) and recurses into embeds.
+  @doc false
+  @spec canonical_field_values(t(), struct() | map()) :: [String.t()]
+  def canonical_field_values(%__MODULE__{} = schema, struct_or_map) do
+    Enum.flat_map(schema.fields, fn field ->
+      canonical_values_for_field(schema, struct_or_map, field)
+    end)
+  end
+
+  defp canonical_values_for_field(schema, struct_or_map, field) do
+    cond do
+      Field.derived?(field) -> []
+      field.type == :embed -> canonical_embed_values(schema, struct_or_map, field)
+      true -> [Field.to_string(Map.get(struct_or_map, field.name), field)]
+    end
+  end
+
+  defp canonical_embed_values(schema, struct_or_map, field) do
+    embed_module = schema.embeds[field.name]
+    embed_schema = embed_module.__delimit_schema__()
+
+    case Map.get(struct_or_map, field.name) do
+      nil -> List.duplicate("", canonical_field_count(embed_schema))
+      embed_value -> canonical_field_values(embed_schema, embed_value)
+    end
+  end
+
+  # Total number of canonical positions a schema contributes (including
+  # nested embeds, excluding derived fields). Used to emit the right
+  # number of empty placeholders when an embed is nil.
+  @doc false
+  @spec canonical_field_count(t()) :: non_neg_integer()
+  def canonical_field_count(%__MODULE__{} = schema) do
+    Enum.reduce(schema.fields, 0, fn field, acc ->
+      cond do
+        Field.derived?(field) ->
+          acc
+
+        field.type == :embed ->
+          embed_module = schema.embeds[field.name]
+          embed_schema = embed_module.__delimit_schema__()
+          acc + canonical_field_count(embed_schema)
+
+        true ->
+          acc + 1
+      end
+    end)
   end
 
   @doc """
@@ -616,8 +791,11 @@ defmodule Delimit.Schema do
   def to_struct_from_flat_values(%__MODULE__{} = schema, values, opts \\ []) do
     struct = struct(schema.module)
 
-    # Get non-embed fields
-    regular_fields = Enum.filter(schema.fields, fn field -> field.type != :embed end)
+    # Non-embed, non-derived fields participate in positional column mapping.
+    regular_fields =
+      Enum.filter(schema.fields, fn field ->
+        field.type != :embed and not Field.derived?(field)
+      end)
 
     # Process regular fields positionally
     {struct_with_fields, remaining_values} =
@@ -646,7 +824,12 @@ defmodule Delimit.Schema do
                                                                            {acc, vals} ->
         embed_module = schema.embeds[embed_field.name]
         embed_schema = embed_module.__delimit_schema__()
-        embed_regular_fields = Enum.filter(embed_schema.fields, fn f -> f.type != :embed end)
+
+        embed_regular_fields =
+          Enum.filter(embed_schema.fields, fn f ->
+            f.type != :embed and not Field.derived?(f)
+          end)
+
         field_count = length(embed_regular_fields)
 
         {embed_values, rest} = Enum.split(vals, field_count)
@@ -663,7 +846,7 @@ defmodule Delimit.Schema do
         {Map.put(acc, embed_field.name, embed_struct), rest}
       end)
 
-    struct_with_embeds
+    populate_derived(schema, struct_with_embeds, values)
   end
 
   @doc """
@@ -717,6 +900,14 @@ defmodule Delimit.Schema do
 
       :embed ->
         quote do: struct()
+
+      :row_hash ->
+        # Derived field — populated post-parse with a binary hash.
+        quote do: binary() | nil
+
+      :raw_row ->
+        # Derived field — populated post-parse with the raw column list.
+        quote do: [String.t()] | nil
 
       {:list, inner_type} ->
         inner_typespec = type_to_typespec(inner_type)

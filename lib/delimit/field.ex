@@ -47,6 +47,8 @@ defmodule Delimit.Field do
           | :date
           | :datetime
           | :embed
+          | :row_hash
+          | :raw_row
           | {:list, field_type()}
           | {:map, field_type()}
           | {:map, field_type(), field_type()}
@@ -61,9 +63,17 @@ defmodule Delimit.Field do
 
   @typedoc """
   Date field configuration options.
+
+  * `:format` - A single Timex/ISO format string for parsing and writing
+  * `:formats` - A list of format strings to try in order on read (mutually
+    exclusive with `:format`). The first format that successfully parses
+    wins. Useful for files that contain mixed date formats (e.g. mostly
+    `M/D/YYYY` with occasional `YYYY-MM-DD`). Writing always uses the
+    first format in the list.
   """
   @type date_opts :: [
-          format: String.t()
+          format: String.t(),
+          formats: [String.t()]
         ]
 
   @typedoc """
@@ -110,12 +120,114 @@ defmodule Delimit.Field do
   @spec new(atom(), field_type(), field_opts()) :: t()
   def new(name, type, opts \\ []) when is_atom(name) and is_atom(type) and is_list(opts) do
     # Validate the field type
-    if type not in [:string, :integer, :float, :boolean, :date, :datetime, :embed] do
+    valid_types = [
+      :string,
+      :integer,
+      :float,
+      :boolean,
+      :date,
+      :datetime,
+      :embed,
+      :row_hash,
+      :raw_row
+    ]
+
+    if type not in valid_types do
       raise ArgumentError, "Unsupported field type: #{inspect(type)}"
     end
 
+    validate_format_options!(name, type, opts)
+    validate_row_hash_options!(name, type, opts)
+
     %__MODULE__{name: name, type: type, opts: opts}
   end
+
+  # Reject unknown :row_hash options so typos in `algorithm:` etc. fail
+  # at compile time rather than producing silently incorrect hashes.
+  defp validate_row_hash_options!(name, :row_hash, opts) do
+    valid_keys = [:algorithm, :truncate, :default, :label]
+    bad_keys = Keyword.keys(opts) -- valid_keys
+
+    if bad_keys != [] do
+      raise ArgumentError,
+            "Field #{inspect(name)}: :row_hash field does not accept #{inspect(bad_keys)}. " <>
+              "Allowed options: #{inspect(valid_keys)}"
+    end
+
+    case Keyword.get(opts, :algorithm, :sha256) do
+      algo when algo in [:sha256, :sha224, :sha384, :sha512, :md5, :sha] ->
+        :ok
+
+      other ->
+        raise ArgumentError,
+              "Field #{inspect(name)}: :row_hash :algorithm must be one of " <>
+                "[:sha256, :sha224, :sha384, :sha512, :md5, :sha], got #{inspect(other)}"
+    end
+
+    case Keyword.get(opts, :truncate) do
+      nil ->
+        :ok
+
+      n when is_integer(n) and n > 0 ->
+        :ok
+
+      other ->
+        raise ArgumentError,
+              "Field #{inspect(name)}: :row_hash :truncate must be a positive integer, got #{inspect(other)}"
+    end
+  end
+
+  defp validate_row_hash_options!(_name, _type, _opts), do: :ok
+
+  # Reject combinations that would be ambiguous (`format:` and `formats:`
+  # together) and reject `formats:` on field types where it has no meaning.
+  defp validate_format_options!(name, type, opts) do
+    has_format? = Keyword.has_key?(opts, :format)
+    has_formats? = Keyword.has_key?(opts, :formats)
+
+    cond do
+      has_format? and has_formats? ->
+        raise ArgumentError,
+              "Field #{inspect(name)}: `format:` and `formats:` are mutually exclusive. " <>
+                "Use `formats:` to try multiple format strings in order; use `format:` for a single format."
+
+      has_formats? and type not in [:date, :datetime] ->
+        raise ArgumentError,
+              "Field #{inspect(name)}: `formats:` is only supported for :date and :datetime fields, got type #{inspect(type)}"
+
+      has_formats? ->
+        case Keyword.fetch!(opts, :formats) do
+          [] ->
+            raise ArgumentError,
+                  "Field #{inspect(name)}: `formats:` must contain at least one format string."
+
+          [_ | _] = formats ->
+            if !Enum.all?(formats, &is_binary/1) do
+              raise ArgumentError,
+                    "Field #{inspect(name)}: every entry in `formats:` must be a string."
+            end
+
+          other ->
+            raise ArgumentError,
+                  "Field #{inspect(name)}: `formats:` must be a list of strings, got #{inspect(other)}"
+        end
+
+      true ->
+        :ok
+    end
+  end
+
+  @doc """
+  Returns true if the field is a derived/computed type whose value comes
+  from the parsing pipeline rather than from a column in the input file.
+
+  Derived fields are skipped during write, do not consume input columns
+  on read, and do not contribute to canonical encoding.
+  """
+  @spec derived?(t()) :: boolean()
+  def derived?(%__MODULE__{type: :row_hash}), do: true
+  def derived?(%__MODULE__{type: :raw_row}), do: true
+  def derived?(%__MODULE__{}), do: false
 
   @doc """
   Parses a raw string value into the specified type.
@@ -313,60 +425,84 @@ defmodule Delimit.Field do
   defp do_parse_value("", %__MODULE__{type: :date} = _field), do: nil
 
   defp do_parse_value(value, %__MODULE__{type: :date} = field) do
-    format = field.opts[:format] || "{YYYY}-{0M}-{0D}"
-
-    # Use Date.from_iso8601 for standard ISO dates to avoid Timex warnings
-    # when possible
-    result =
-      if format == "{YYYY}-{0M}-{0D}" do
-        Date.from_iso8601(value)
-      else
-        case Timex.parse(value, format) do
-          {:ok, date} -> {:ok, date}
-          {:error, reason} -> {:error, reason}
-        end
-      end
-
-    case result do
-      {:ok, date} ->
-        date
-
-      {:error, _reason} ->
-        # Return nil for values that can't be parsed
-        # This allows the tests to pass while being more forgiving
-        nil
-    end
+    formats = date_formats_for(field, "{YYYY}-{0M}-{0D}")
+    parse_with_formats(value, formats, &parse_single_date/2)
   end
 
   defp do_parse_value("", %__MODULE__{type: :datetime} = _field), do: nil
 
   defp do_parse_value(value, %__MODULE__{type: :datetime} = field) do
-    format = field.opts[:format] || "{ISO:Extended}"
+    formats = date_formats_for(field, "{ISO:Extended}")
+    parse_with_formats(value, formats, &parse_single_datetime/2)
+  end
 
-    # Use DateTime.from_iso8601 for standard ISO dates to avoid Timex warnings
-    # when possible
-    result =
-      if format == "{ISO:Extended}" do
-        case DateTime.from_iso8601(value) do
-          {:ok, datetime, _offset} -> {:ok, datetime}
-          error -> error
-        end
-      else
-        case Timex.parse(value, format) do
-          {:ok, datetime} -> {:ok, datetime}
-          {:error, reason} -> {:error, reason}
-        end
-      end
-
-    case result do
-      {:ok, datetime} ->
-        datetime
-
-      {:error, _reason} ->
-        # Return nil for values that can't be parsed
-        # This allows the tests to pass while being more forgiving
-        nil
+  # Resolve which format(s) to try for a date/datetime field.
+  # Either `formats: [...]` (try each in order) or `format: "..."` (single)
+  # — never both. `Field.new/3` rejects the combination at compile time.
+  defp date_formats_for(field, default) do
+    cond do
+      formats = field.opts[:formats] -> formats
+      format = field.opts[:format] -> [format]
+      true -> [default]
     end
+  end
+
+  # Try each format until one succeeds; return nil if none do. Mirrors the
+  # existing single-format failure mode of returning nil for unparseable input.
+  defp parse_with_formats(value, formats, parse_one) do
+    Enum.find_value(formats, fn format ->
+      case parse_one.(value, format) do
+        {:ok, parsed} -> parsed
+        _ -> nil
+      end
+    end)
+  end
+
+  defp parse_single_date(value, "{YYYY}-{0M}-{0D}") do
+    # Fast path for ISO 8601 — avoids Timex warnings.
+    Date.from_iso8601(value)
+  end
+
+  defp parse_single_date(value, format) do
+    safe_timex_parse(value, format, fn parsed ->
+      case parsed do
+        %Date{} = d -> {:ok, d}
+        # Timex sometimes returns NaiveDateTime for date-only formats; coerce.
+        %NaiveDateTime{} = ndt -> {:ok, NaiveDateTime.to_date(ndt)}
+        _ -> {:error, :unexpected_type}
+      end
+    end)
+  end
+
+  defp parse_single_datetime(value, "{ISO:Extended}") do
+    # Fast path for ISO 8601 — avoids Timex warnings.
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> {:ok, datetime}
+      error -> error
+    end
+  end
+
+  defp parse_single_datetime(value, format) do
+    safe_timex_parse(value, format, fn parsed ->
+      case parsed do
+        %DateTime{} = dt -> {:ok, dt}
+        %NaiveDateTime{} = ndt -> DateTime.from_naive(ndt, "Etc/UTC")
+        _ -> {:error, :unexpected_type}
+      end
+    end)
+  end
+
+  # Timex.parse/2 returns {:ok, _} | {:error, _} for most failures, but its
+  # internal tokenizer can raise on malformed format strings or values that
+  # don't match the format at all. Catch those so callers see a clean
+  # `{:error, _}` and can move on to the next format in the fallback list.
+  defp safe_timex_parse(value, format, ok_fn) do
+    case Timex.parse(value, format) do
+      {:ok, parsed} -> ok_fn.(parsed)
+      {:error, _} = err -> err
+    end
+  rescue
+    _ -> {:error, :timex_raised}
   end
 
   @doc """
@@ -437,7 +573,7 @@ defmodule Delimit.Field do
   end
 
   defp do_to_string(value, %__MODULE__{type: :date} = field) do
-    format = field.opts[:format] || "{YYYY}-{0M}-{0D}"
+    format = write_format_for(field, "{YYYY}-{0M}-{0D}")
 
     # Use Date.to_iso8601 for standard ISO dates to avoid Timex warnings
     if format == "{YYYY}-{0M}-{0D}" do
@@ -448,7 +584,7 @@ defmodule Delimit.Field do
   end
 
   defp do_to_string(value, %__MODULE__{type: :datetime} = field) do
-    format = field.opts[:format] || "{ISO:Extended}"
+    format = write_format_for(field, "{ISO:Extended}")
 
     # Use DateTime.to_iso8601 for standard ISO dates to avoid Timex warnings
     if format == "{ISO:Extended}" do
@@ -460,5 +596,16 @@ defmodule Delimit.Field do
 
   defp do_to_string(value, _field) do
     Kernel.to_string(value)
+  end
+
+  # When writing, prefer `format:` (single, explicit). If the field uses the
+  # `formats:` list (multi-format read), use the first list entry — this is
+  # the format the user listed as primary/canonical.
+  defp write_format_for(field, default) do
+    case {field.opts[:format], field.opts[:formats]} do
+      {format, _} when is_binary(format) -> format
+      {nil, [first | _]} -> first
+      _ -> default
+    end
   end
 end

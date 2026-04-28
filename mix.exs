@@ -4,7 +4,7 @@ defmodule Delimit.MixProject do
   def project do
     [
       app: :delimit,
-      version: "0.3.0",
+      version: "0.4.0",
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
