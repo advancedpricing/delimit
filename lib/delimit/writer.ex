@@ -15,12 +15,14 @@ defmodule Delimit.Writer do
 
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
+  * `:headers` - Write a header row (default: false)
   * `:line_ending` - Line ending to use (default: system-dependent)
   * `:format` - Predefined format (`:csv`, `:tsv`, `:psv`) that sets appropriate options
   """
   @type write_options :: [
           delimiter: String.t(),
           escape: String.t(),
+          headers: boolean(),
           line_ending: String.t(),
           format: atom()
         ]

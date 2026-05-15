@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.2 (2026-05-15)
+
+### Bug Fixes
+
+- Fix `read_options` and `write_options` typespecs: the option was
+  declared as `:header` (singular) but every code path reads `:headers`
+  (plural). Callers passing `headers: true | false` were breaking the
+  type contract, which Dialyzer propagated through the macro-generated
+  `stream/2` and `read/2`, poisoning analysis in consumer projects with
+  cascades of `no_return` and `unused_fun` warnings. Renames `:header`
+  to `:headers` in both types and docstrings.
+
 ## 0.4.1 (2026-04-28)
 
 ### Bug Fixes

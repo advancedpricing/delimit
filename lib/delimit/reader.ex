@@ -15,7 +15,7 @@ defmodule Delimit.Reader do
 
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
-  * `:header` - Does the file contain a header? (default: false)
+  * `:headers` - Does the file contain a header? (default: false)
   * `:skip_lines` - Number of lines to skip at the beginning (default: 0)
   * `:skip_while` - Function that returns true for lines to skip
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
@@ -25,7 +25,7 @@ defmodule Delimit.Reader do
   @type read_options :: [
           delimiter: String.t(),
           escape: String.t(),
-          header: boolean(),
+          headers: boolean(),
           skip_lines: non_neg_integer(),
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
