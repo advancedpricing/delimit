@@ -16,6 +16,9 @@ defmodule Delimit.Reader do
   * `:delimiter` - The field delimiter character (default: comma)
   * `:escape` - The escape character used for quotes (default: double-quote)
   * `:headers` - Does the file contain a header? (default: false)
+  * `:validate_headers` - Raise `Delimit.HeaderError` unless the header matches
+    the schema's headers, in order (default: false). Requires `headers: true`.
+    See `Delimit.HeaderError.check/2` for how headers are compared.
   * `:skip_lines` - Number of lines to skip at the beginning (default: 0)
   * `:skip_while` - Function that returns true for lines to skip
   * `:trim_fields` - Whether to trim whitespace from fields (default: true)
@@ -26,6 +29,7 @@ defmodule Delimit.Reader do
           delimiter: String.t(),
           escape: String.t(),
           headers: boolean(),
+          validate_headers: boolean(),
           skip_lines: non_neg_integer(),
           skip_while: (String.t() -> boolean()),
           trim_fields: boolean(),
@@ -110,8 +114,11 @@ defmodule Delimit.Reader do
       # Merge options from schema, format, and function call
       options = Delimit.Formats.merge_options(schema.options, format, custom_opts)
 
+      validate_headers = validate_headers?(options)
+
       # Handle empty string case explicitly
       if string == "" do
+        if validate_headers, do: check_headers!(schema, [])
         []
       else
         # Get key options
@@ -127,6 +134,7 @@ defmodule Delimit.Reader do
 
         # Handle empty input case
         if string == "" || String.trim(string) == "" do
+          if validate_headers, do: check_headers!(schema, [])
           []
         else
           # Preprocess lines to handle skipping if needed
@@ -143,7 +151,10 @@ defmodule Delimit.Reader do
                 if length(filtered_lines) > 0 do
                   first_line = Enum.at(filtered_lines, 0)
                   parsed = parser.parse_string(first_line, skip_headers: false)
-                  if length(parsed) > 0, do: Enum.at(parsed, 0, []), else: []
+
+                  if length(parsed) > 0,
+                    do: parsed |> Enum.at(0, []) |> clean_header_row(),
+                    else: []
                 else
                   []
                 end
@@ -164,6 +175,8 @@ defmodule Delimit.Reader do
 
               {filtered_string, nil}
             end
+
+          if validate_headers, do: check_headers!(schema, header_row)
 
           # Parse all rows with NimbleCSV using the filtered string
           all_rows =
@@ -250,11 +263,21 @@ defmodule Delimit.Reader do
       # Create parser that doesn't skip any rows
       parser = Delimit.Parsers.get_parser_with_escape(delimiter, escape)
 
+      lines =
+        path
+        |> File.stream!()
+        |> maybe_skip_while(skip_while_fn)
+        |> maybe_skip_lines(skip_lines)
+
+      # Checked now rather than on first read, so a caller can rescue the error
+      # where it asks for the stream.
+      if validate_headers?(options) do
+        header_row = lines |> parser.parse_stream(skip_headers: false) |> Enum.take(1)
+        check_headers!(schema, List.flatten(header_row))
+      end
+
       # Build the stream pipeline properly using Stream functions
-      path
-      |> File.stream!()
-      |> maybe_skip_while(skip_while_fn)
-      |> maybe_skip_lines(skip_lines)
+      lines
       |> parser.parse_stream(skip_headers: headers_enabled)
       |> Stream.reject(fn row ->
         # Only reject completely empty rows (no elements)
@@ -281,6 +304,32 @@ defmodule Delimit.Reader do
     # Return all lines (including empty/whitespace ones)
     # The calling function will handle empty files specifically
     lines_after_skip
+  end
+
+  # Columns are found by header name, so a byte order mark before the first header,
+  # or spaces around any of them, would leave those columns unmatched.
+  defp clean_header_row([first | rest]) do
+    Enum.map([String.trim_leading(first, "\uFEFF") | rest], &String.trim/1)
+  end
+
+  defp clean_header_row([]), do: []
+
+  defp validate_headers?(options) do
+    validate_headers = Keyword.get(options, :validate_headers, false)
+
+    if validate_headers and not Keyword.get(options, :headers, false) do
+      raise ArgumentError, "the :validate_headers option requires headers: true"
+    end
+
+    validate_headers
+  end
+
+  @spec check_headers!(Schema.t(), [String.t()]) :: :ok
+  defp check_headers!(schema, header_row) do
+    case Delimit.HeaderError.check(Schema.headers(schema), header_row) do
+      :ok -> :ok
+      {:error, error} -> raise error
+    end
   end
 
   # Helper function to conditionally skip lines in a stream

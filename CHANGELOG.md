@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.5.0 (2026-10-28)
+
+### Features
+
+- Add the `validate_headers: true` read option for `read/2`, `read_string/2`
+  and `stream/2`. It checks the file's header against the schema's headers
+  (field labels, or field names when there is no label) and raises
+  `Delimit.HeaderError` when they differ. Headers match ignoring case and
+  surrounding whitespace, a UTF-8 byte order mark before the first header is
+  ignored, and the order must match, since `stream/2` reads columns by
+  position. The option requires `headers: true` and is off by default, so
+  existing callers are unaffected. `stream/2` checks the header when it is
+  called rather than on the first read.
+- Add `Delimit.HeaderError`, carrying the `expected` and `found` headers plus
+  the `missing` and `unexpected` ones, with a message naming them. Its
+  `check/2` compares a header row without raising.
+
+### Bug Fixes
+
+- `read/2` and `read_string/2` with `headers: true` find columns by header
+  name, but did not trim the header row or drop a UTF-8 byte order mark from
+  it. A header with spaces around it, or the first header of a file saved with
+  a byte order mark, matched no field, so that column was read as `nil`. Both
+  are now cleaned before columns are matched.
+
 ## 0.4.2 (2026-05-15)
 
 ### Bug Fixes

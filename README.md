@@ -24,7 +24,7 @@ Add `delimit` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:delimit, "~> 0.3.0"}
+    {:delimit, "~> 0.5.0"}
   ]
 end
 ```
@@ -339,6 +339,18 @@ people = MyApp.Person.read("people.csv", escape: "\"")
 # Control whether headers are included (default is true)
 people = MyApp.Person.read("people.csv", headers: false)
 :ok = MyApp.Person.write("people.csv", people, headers: false)
+
+# Reject a file whose header does not match the schema's headers (field labels,
+# or field names when there is no label). Case, surrounding whitespace and a
+# byte order mark are ignored; the order must match. Requires headers: true.
+try do
+  MyApp.Person.read("people.csv", headers: true, validate_headers: true)
+rescue
+  error in Delimit.HeaderError ->
+    # e.g. "expected the columns first_name, last_name but found the columns
+    #       last_name, first_name"
+    Exception.message(error)
+end
 
 # Skip a specific number of lines at the beginning of a file
 people = MyApp.Person.read("people.csv", skip_lines: 3)
